@@ -1,0 +1,159 @@
+:root{
+  --bg: #05070d;
+  --card:#0d1222;
+  --text:#eaf0ff;
+  --muted:#a9b4d4;
+  --border:#283458;
+
+  --cell:#0b1022;
+  --cellHover:#182044;
+
+  --hit:#ff5c5c;
+  --miss:#6aa9ff;
+
+  /* “Starfleet” accent */
+  --ship:#ffcc66;
+  --glow: 0 0 18px rgba(255, 204, 102, 0.18);
+}
+
+*{ box-sizing:border-box; }
+body{
+  margin:0;
+  font-family: system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+  background: radial-gradient(1200px 600px at 10% 0%, #0b1230 0%, var(--bg) 60%);
+  color:var(--text);
+}
+
+.topbar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:18px 20px;
+  border-bottom:1px solid var(--border);
+}
+
+.brand{ display:flex; gap:14px; align-items:center; }
+.badge{
+  width:44px; height:44px; border-radius:14px;
+  display:grid; place-items:center;
+  background: linear-gradient(145deg, rgba(255,204,102,0.25), rgba(106,169,255,0.12));
+  border:1px solid rgba(255,255,255,0.10);
+  box-shadow: var(--glow);
+  font-weight:900;
+}
+h1{ margin:0; font-size:18px; letter-spacing:0.5px; }
+.subtitle{ margin:2px 0 0; color:var(--muted); font-size:12px; }
+
+.controls button{
+  margin-left:10px;
+  padding:10px 12px;
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor:pointer;
+}
+.controls button:hover{ filter:brightness(1.15); }
+
+.layout{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:18px;
+  padding:18px;
+}
+
+.panel{
+  background: rgba(13,18,34,0.85);
+  border:1px solid var(--border);
+  border-radius:16px;
+  padding:14px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.22);
+}
+
+.hint{ color:var(--muted); margin:10px 0 0; font-size:13px; }
+
+.board{
+  display:grid;
+  grid-template-columns: repeat(10, 32px);
+  grid-template-rows: repeat(10, 32px);
+  gap:4px;
+  padding:10px;
+  background: rgba(4,6,14,0.7);
+  border:1px solid var(--border);
+  border-radius:14px;
+  width:max-content;
+}
+
+.cell{
+  width:32px; height:32px;
+  border-radius:10px;
+  background:var(--cell);
+  border:1px solid rgba(255,255,255,0.06);
+  cursor:pointer;
+  position:relative;
+  transition: transform 80ms ease, filter 120ms ease;
+}
+.cell:hover{ background:var(--cellHover); transform: translateY(-1px); }
+
+.cell.disabled{
+  cursor:not-allowed;
+  opacity:0.88;
+  transform:none;
+}
+
+.cell.ship{
+  background: rgba(255, 204, 102, 0.18);
+  box-shadow: var(--glow) inset;
+}
+
+.cell.hit{ background: rgba(255, 92, 92, 0.22); }
+.cell.miss{ background: rgba(106, 169, 255, 0.20); }
+
+/* Markers */
+.cell.hit::after, .cell.miss::after{
+  position:absolute;
+  inset:0;
+  display:grid;
+  place-items:center;
+  font-weight:900;
+}
+.cell.hit::after{ content:"✶"; color: var(--hit); font-size: 16px; }
+.cell.miss::after{ content:"○"; color: var(--miss); font-size: 18px; }
+
+.statusbar{
+  padding:14px 18px;
+  border-top:1px solid var(--border);
+}
+.status{ color:var(--text); }
+
+/* Captain’s Log */
+.logpanel { grid-column: 1 / -1; }
+
+.log{
+  max-height: 240px;
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: rgba(4,6,14,0.55);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 12.5px;
+  line-height: 1.35;
+  color: var(--text);
+}
+
+.log .muted{ color: var(--muted); }
+.log .hitTxt{ color: var(--hit); font-weight: 700; }
+.log .missTxt{ color: var(--miss); font-weight: 700; }
+.log .sinkTxt{ color: var(--ship); font-weight: 800; }
+
+@media (max-width: 900px){
+  .layout{ grid-template-columns:1fr; }
+}
+#stats{
+  color: var(--muted);
+  margin-top: 6px;
+  font-size: 12.5px;
+}
+
+

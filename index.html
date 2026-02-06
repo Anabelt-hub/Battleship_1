@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Starfleet Tactical Simulator</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="badge">★</div>
+      <div>
+        <h1>Starfleet Tactical Simulator</h1>
+        <p class="subtitle">Sector grid engagement • Phaser/torpedo targeting • Cloaked enemy vessels</p>
+      </div>
+    </div>
+
+    <div class="controls">
+      <button id="btnNewGame">New Mission</button>
+      <button id="btnResume">Resume Mission</button>
+      <button id="btnClearSave">Clear Save</button>
+      <button id="btnReveal">Scan (Reveal)</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="panel">
+      <h2>Federation Task Force</h2>
+      <div id="playerBoard" class="board" aria-label="Federation sector grid"></div>
+      <p class="hint">Your starships are visible on this grid. Enemy will target these sectors.</p>
+    </section>
+
+    <section class="panel">
+      <h2>Enemy Sector Grid</h2>
+      <div id="cpuBoard" class="board" aria-label="Enemy sector grid"></div>
+      <p class="hint">Click a sector to fire. Enemy ships are cloaked (unless you scan).</p>
+    </section>
+
+    <section class="panel logpanel">
+      <h2>Captain’s Log</h2>
+      <div id="log" class="log" aria-label="Battle history log"></div>
+    </section>
+  </main>
+
+  <footer class="statusbar">
+    <div id="status" class="status">Press “New Mission” to begin.</div>
+    <div id="stats" class="status"></div>
+  </footer>
+
+  <script src="game.js"></script>
+</body>
+</html>

@@ -31,9 +31,17 @@ const btnNewGame = document.getElementById("btnNewGame");
 const btnResume = document.getElementById("btnResume");
 const btnClearSave = document.getElementById("btnClearSave");
 const btnReveal = document.getElementById("btnReveal");
+const btnUndo = document.getElementById("btnUndo");
+const btnResetScore = document.getElementById("btnResetScore");
+const serverScoreEl = document.getElementById("serverScore");
 
 let game = null;
 let stats = loadStats();
+
+// Exam Feature: one-step undo for the player's last shot
+let undoSnapshot = null;
+let pendingCpuTimeoutId = null;
+
 
 // ---------- Buttons ----------
 btnNewGame.addEventListener("click", () => {
@@ -73,10 +81,51 @@ btnReveal.addEventListener("click", () => {
 
   saveGame();
 });
+
+
+// Undo: only available immediately after the player's last shot, before the CPU fires
+if (btnUndo) {
+  btnUndo.addEventListener("click", () => {
+    if (!game || !undoSnapshot || game.phase !== "battle" || game.turn !== "cpu") return;
+
+    // Cancel the scheduled CPU move
+    if (pendingCpuTimeoutId) {
+      clearTimeout(pendingCpuTimeoutId);
+      pendingCpuTimeoutId = null;
+    }
+
+    // Restore game snapshot
+    game = deserializeGame(undoSnapshot.payload);
+    setStatus(undoSnapshot.statusText || "Last shot undone. Your turn, Captain.");
+
+    // Trim any log lines that were added by the undone move
+    if (typeof undoSnapshot.logLen === "number" && game.log.length > undoSnapshot.logLen) {
+      game.log = game.log.slice(0, undoSnapshot.logLen);
+    }
+
+    undoSnapshot = null;
+    setUndoEnabled(false);
+
+    renderAll();
+    renderLog();
+    saveGame();
+  });
+}
+
+// Server scoreboard controls
+if (btnResetScore) {
+  btnResetScore.addEventListener("click", async () => {
+    const ok = confirm("Reset the server scoreboard (wins/losses/shots) to 0?");
+    if (!ok) return;
+    await scoreApi("reset");
+    await refreshServerScore();
+  });
+}
 // ----------------------------
 
 renderLog();
 renderStatsLine();
+refreshServerScore();
 
 // Auto-resume if save exists
 if (!loadGame()) {
@@ -87,9 +136,45 @@ function setStatus(msg) {
   statusEl.textContent = msg;
 }
 
+
+function setUndoEnabled(enabled) {
+  if (!btnUndo) return;
+  btnUndo.disabled = !enabled;
+}
+
 function renderStatsLine() {
   if (!statsEl) return;
   statsEl.textContent = `Career record — Federation wins: ${stats.fedWins} | Enemy wins: ${stats.enemyWins}`;
+}
+
+
+/**
+ * Exam Feature (Persistent): Server-side JSON scoreboard
+ * - score_api.php stores: wins, losses, shots
+ * - This persists across refresh and Apache restart.
+ */
+async function scoreApi(action) {
+  try {
+    const res = await fetch(`score_api.php?action=${encodeURIComponent(action)}`, {
+      method: "GET",
+      headers: { "Accept": "application/json" },
+      cache: "no-store",
+    });
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+async function refreshServerScore() {
+  if (!serverScoreEl) return;
+  const data = await scoreApi("get");
+  if (!data || !data.ok) {
+    serverScoreEl.textContent = "Server scoreboard unavailable (check PHP).";
+    return;
+  }
+  serverScoreEl.textContent =
+    `Server scoreboard — Wins: ${data.wins} | Losses: ${data.losses} | Shots: ${data.shots}`;
 }
 
 function coordLabel(r, c) {
@@ -266,6 +351,10 @@ function pickTargetForAI() {
 // ---------------------------------------
 
 function newMission() {
+  undoSnapshot = null;
+  setUndoEnabled(false);
+  if (pendingCpuTimeoutId) { clearTimeout(pendingCpuTimeoutId); pendingCpuTimeoutId = null; }
+
   game = {
     phase: "battle",
     turn: "player",
@@ -409,7 +498,19 @@ function onFireAtEnemy(r, c) {
   const targetKey = key(r, c);
   if (game.cpu.shots.has(targetKey)) return;
 
+  // Snapshot for Undo (before mutating state)
+  undoSnapshot = {
+    payload: serializeGame(game),
+    statusText: statusEl ? statusEl.textContent : "",
+    logLen: game.log.length,
+  };
+  setUndoEnabled(true);
+
   const result = applyShot(game.cpu, r, c);
+
+  // Persistent scoreboard: count each player shot
+  scoreApi("recordShot").then(refreshServerScore);
+
   const where = coordLabel(r, c);
 
   if (result.hit) {
@@ -434,6 +535,12 @@ function onFireAtEnemy(r, c) {
     stats.fedWins += 1;
     saveStats();
 
+    // Persistent scoreboard (server JSON)
+    scoreApi("recordWin").then(refreshServerScore);
+    undoSnapshot = null;
+    setUndoEnabled(false);
+
+
     clearSavedMission(); // mission complete, don’t resume mid-end
     renderStatsLine();
     renderAll();
@@ -444,7 +551,13 @@ function onFireAtEnemy(r, c) {
   renderAll();
   saveGame();
 
-  setTimeout(cpuMove, 450);
+  pendingCpuTimeoutId = setTimeout(() => {
+    pendingCpuTimeoutId = null;
+    // once CPU fires, undo is no longer allowed
+    undoSnapshot = null;
+    setUndoEnabled(false);
+    cpuMove();
+  }, 1500);
 }
 
 // Enemy AI move (hunt/target + direction lock)
@@ -512,6 +625,12 @@ function cpuMove() {
     stats.enemyWins += 1;
     saveStats();
 
+    // Persistent scoreboard (server JSON)
+    scoreApi("recordLoss").then(refreshServerScore);
+    undoSnapshot = null;
+    setUndoEnabled(false);
+
+
     clearSavedMission();
     renderStatsLine();
     renderAll();
@@ -556,6 +675,10 @@ function loadGame() {
   try {
     const payload = JSON.parse(raw);
     game = deserializeGame(payload);
+
+    undoSnapshot = null;
+    setUndoEnabled(false);
+    if (pendingCpuTimeoutId) { clearTimeout(pendingCpuTimeoutId); pendingCpuTimeoutId = null; }
 
     renderAll();
     renderLog();

@@ -1,3 +1,6 @@
+<?php
+// index.php for XAMPP Apache (PHP)
+?>
 <!doctype html>
 <html lang="en">
 <head>
@@ -21,6 +24,8 @@
       <button id="btnResume">Resume Mission</button>
       <button id="btnClearSave">Clear Save</button>
       <button id="btnReveal">Scan (Reveal)</button>
+      <button id="btnUndo" disabled>Undo Last Shot</button>
+      <button id="btnResetScore" class="danger">Reset Scoreboard</button>
     </div>
   </header>
 
@@ -46,6 +51,7 @@
   <footer class="statusbar">
     <div id="status" class="status">Press “New Mission” to begin.</div>
     <div id="stats" class="status"></div>
+    <div id="serverScore" class="status"></div>
   </footer>
 
   <script src="game.js"></script>

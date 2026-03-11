@@ -1,7 +1,7 @@
 // Starfleet Tactical Simulator (Battleship reskin) - Vanilla JS
 // Includes: hit/miss markers, Captain's Log, end-of-game summary
 // Includes: Smarter enemy AI (hunt/target + direction lock after 2 hits)
-// Includes: Persistent JSON storage via localStorage (save/resume/clear)
+// Includes: Persistent JSON storage via localStorage (save/resume/clear))
 // Rules fixes:
 //  - Victory/defeat only after a HIT
 //  - Scan shows enemy ships even with misses (render priority HIT > SHIP > MISS)
@@ -774,3 +774,4 @@ function saveStats() {
   localStorage.setItem(STATS_KEY, JSON.stringify(stats));
 }
 // ------------------------------------------------------------------------
+

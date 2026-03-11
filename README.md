@@ -1,4 +1,4 @@
-# Distributed Multiplayer Battleship System
+# 3750 Final Project: Multiplayer Battleship System
 **Team: 404 Error**
 
 # Project Overview

@@ -1,75 +1,44 @@
-# Multiplayer Battleship System
-CPSC 3750 – Phase 1: Server Architecture & Integrity
+# Distributed Multiplayer Battleship System
+**Team: 404 Error**
 
 # Project Overview
-This project is a persistent, multiplayer Battleship system designed with a focus on clean system architecture and rigorous back-end discipline. The system supports multiple concurrent games, enforces strict turn-based logic, and ensures player statistics persist across sessions through a relational database.
-
-By transitioning from a simple game to a robust distributed system, this project emphasizes:
-
-  Identity Enforcement: Unique, server-generated player identities.
-
-  Database Integrity: Relational schema with mandatory foreign key constraints.
-
-  API Stability: High-performance JSON endpoints designed to survive automated stress testing.
+This system is a persistent, multiplayer client/server Battleship platform designed across three structured phases. The current implementation focuses on Phase 1, emphasizing server architecture, relational database modeling, and API contract stability. The system supports multiplayer turn rotation, grid configuration, and persistent player statistics.
 
 # Architecture Summary
-The system follows a Client-Server architecture with a focus on server-side authority.
+The system utilizes a web-based architecture consisting of a frontend interface and backend service scripts.
 
-  Server: Built with PHP to handle game logic, move validation, and turn rotation.
+    Frontend: A vanilla JavaScript application managing game state, user interactions, and board rendering.
 
-  Database: A relational model featuring:
+    Backend: PHP-based API endpoints that handle data persistence and game logic.
 
-    Players Table: Stores UUIDs, unique display names, and lifetime stats.
+    Data Persistence: Uses JSON-based storage for game states and scoreboards to ensure data persists across sessions.
 
-    GamePlayers Table: A join table managing the many-to-many relationship between players and active games.
-
-    Moves Table: A persistent log of every action with timestamps for regression testing.
-
-    Test Mode: A dedicated "grading harness" that allows for administrative resets and state inspection during development and evaluation.
+    Security: A dedicated Test Mode is implemented, requiring a specific password header for administrative actions.
 
 # API Description
-The system communicates strictly via JSON over HTTP. Key endpoints include:
+The system communicates via JSON-based endpoints categorized into production and testing functions.
 
-Production Endpoints
-    POST /api/players: Registers a new player; generates a persistent player_id.
+**Production Endpoints**
 
-    POST /api/games: Initializes a new game session with configurable grid sizes (5–15).
+    Score Management: score_api.php provides actions to recordWin, recordLoss, recordShot, and get global statistics.
 
-    POST /api/games/{id}/join: Adds a player to an existing "waiting" game.
+    Game Logic: The frontend communicates with the backend to synchronize turns and battle history.
 
-    POST /api/games/{id}/place: Enforces placement of exactly 3 single-cell ships.
+**Test Mode Endpoints**
+Accessible only when the X-Test-Mode header matches the defined $TEST_PASSWORD.
 
-    POST /api/games/{id}/fire: Processes shots, updates turn order, and evaluates win conditions.
+    POST ?action=reset: Reinitializes the game board and sets the turn to player one.
 
-    GET /api/players/{id}/stats: Retrieves lifetime wins, losses, and accuracy.
+    GET ?action=reveal: Returns the current board layout and turn status for verification.
 
-Test Mode Endpoints
-    POST /api/test/games/{id}/restart: Resets game state while preserving the game ID.
+    POST ?action=placeShips: Allows for deterministic ship placement using specific grid coordinates.
 
-    GET /api/test/games/{id}/board/{player_id}: Reveals ship and hit locations for debugging.
+    POST ?action=forceTurn: Manually overrides the current player turn.
 
-# Team: 404 Error
-Human Engineers:
+# Team Member Names
+Gabbie Borjas
 
-  Gabriella Borjas
-
-  Role: Front-end Coding
-
-  Responsibilities: Creating the visual layout, ensuring intuitive UX, and capturing/processing user actions.
-
-  Anabel Thompson
-
-  Role: Back-end Coding
-
-  Responsibilities: Controlling application logic, managing persistent data, creating API endpoints, and data protection.
-
-AI System:
-
-  Gemini / ChatGPT / Claude
-
-  Role: Assistant Engineer
-
-  Responsibilities: Generating edge-case tests, refining logic, and assisting with rapid prototyping ("vibe coding").
+Anabel Thompson
 
 # AI Tools Used
 ChatGPT
@@ -77,3 +46,14 @@ ChatGPT
 Claude
 
 Gemini
+
+# Major Roles
+**Human Engineers**
+
+    Gabbie Borjas (Front-end Coding): Responsible for the visual layout, creating an intuitive user interface, and processing user actions.
+
+    Anabel Thompson (Backend Coding): Responsible for application logic, storing/retrieving persistent data, creating API endpoints, and protecting user data.
+
+**AI System**
+
+    Assistant: Used strategically for code speed, perfecting existing code, and generating test cases.

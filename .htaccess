@@ -1,7 +1,8 @@
 RewriteEngine On
 
-RewriteCond %{REQUEST_FILENAME} -f [OR]
-RewriteCond %{REQUEST_FILENAME} -d
+# If the file exists, serve it normally
+RewriteCond %{REQUEST_FILENAME} -f
 RewriteRule ^ - [L]
 
+# Otherwise route everything to index.php
 RewriteRule ^ index.php [QSA,L]

@@ -118,7 +118,8 @@ function ship_letter($type) {
     }
 }
 
-$path = parse_url($_SERVER["REQUEST_URI"], PHP_URL_PATH);
+path = parse_url($_SERVER["REQUEST_URI"], PHP_URL_PATH);
+$path = str_replace("/index.php", "", $path);
 $method = $_SERVER["REQUEST_METHOD"];
 $state = load_state($DATA_FILE);
 

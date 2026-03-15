@@ -1,11 +1,10 @@
 <?php
-header("Content-Type: application/json");
-
 $DATA_FILE = __DIR__ . DIRECTORY_SEPARATOR . "phase1_state.json";
 $TEST_PASSWORD = "TEST_PASSWORD";
 
 function send_json($data, $status = 200) {
     http_response_code($status);
+    header("Content-Type: application/json");
     echo json_encode($data);
     exit;
 }
@@ -20,6 +19,7 @@ function get_headers_lowercase() {
 
 function require_test_mode($password) {
     $headers = get_headers_lowercase();
+
     if (!isset($headers["x-test-mode"]) || $headers["x-test-mode"] !== $password) {
         send_json(["error" => "Forbidden"], 403);
     }
@@ -81,6 +81,7 @@ function get_request_body() {
     if ($raw === false || trim($raw) === "") {
         return [];
     }
+
     $decoded = json_decode($raw, true);
     return is_array($decoded) ? $decoded : [];
 }
@@ -119,21 +120,11 @@ function ship_letter($type) {
 
 $path = parse_url($_SERVER["REQUEST_URI"], PHP_URL_PATH);
 $method = $_SERVER["REQUEST_METHOD"];
-
 $state = load_state($DATA_FILE);
-
-if ($path === "/" && $method === "GET") {
-    if (file_exists(__DIR__ . DIRECTORY_SEPARATOR . "index.html")) {
-        header("Content-Type: text/html");
-        readfile(__DIR__ . DIRECTORY_SEPARATOR . "index.html");
-        exit;
-    }
-    send_json(["message" => "Battleship API is running"]);
-}
 
 /*
 |--------------------------------------------------------------------------
-| Phase 1 core endpoints
+| API routes
 |--------------------------------------------------------------------------
 */
 
@@ -180,8 +171,7 @@ if ($path === "/games" && $method === "POST") {
         "id" => $gameId,
         "status" => "waiting",
         "gridSize" => $gridSize,
-        "players" => [],
-        "createdAt" => time()
+        "players" => []
     ];
 
     $state["games"][$gameId] = $game;
@@ -198,12 +188,11 @@ if (preg_match("#^/games/([^/]+)/join$#", $path, $matches) && $method === "POST"
         send_json(["error" => "game not found"], 404);
     }
 
-    $game = $state["games"][$gameId];
-
     if (!isset($body["playerId"]) || !isset($state["players"][$body["playerId"]])) {
         send_json(["error" => "player not found"], 404);
     }
 
+    $game = $state["games"][$gameId];
     $playerId = $body["playerId"];
 
     if (!in_array($playerId, $game["players"], true)) {
@@ -219,12 +208,6 @@ if (preg_match("#^/games/([^/]+)/join$#", $path, $matches) && $method === "POST"
 
     send_json($game, 200);
 }
-
-/*
-|--------------------------------------------------------------------------
-| Test mode endpoints from appendix
-|--------------------------------------------------------------------------
-*/
 
 if ($path === "/test/reset" && $method === "POST") {
     require_test_mode($TEST_PASSWORD);
@@ -246,7 +229,6 @@ if ($path === "/test/reveal" && $method === "GET") {
 
 if ($path === "/test/placeShips" && $method === "POST") {
     require_test_mode($TEST_PASSWORD);
-
     $body = get_request_body();
 
     if (!isset($body["ships"]) || !is_array($body["ships"])) {
@@ -264,6 +246,7 @@ if ($path === "/test/placeShips" && $method === "POST") {
 
         foreach ($ship["positions"] as $pos) {
             $coords = position_to_indexes($pos);
+
             if ($coords === null) {
                 send_json(["error" => "Invalid board position: " . $pos], 400);
             }
@@ -279,7 +262,6 @@ if ($path === "/test/placeShips" && $method === "POST") {
 
 if ($path === "/test/forceTurn" && $method === "POST") {
     require_test_mode($TEST_PASSWORD);
-
     $body = get_request_body();
 
     if (!isset($body["player"]) || trim($body["player"]) === "") {
@@ -291,69 +273,60 @@ if ($path === "/test/forceTurn" && $method === "POST") {
 
     send_json(["turn" => $state["test"]["turn"]], 200);
 }
+?>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Starfleet Tactical Simulator</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="badge">★</div>
+      <div>
+        <h1>Starfleet Tactical Simulator</h1>
+        <p class="subtitle">Sector grid engagement • Phaser/torpedo targeting • Cloaked enemy vessels</p>
+      </div>
+    </div>
 
-/*
-|--------------------------------------------------------------------------
-| Optional compatibility endpoints if the grader still calls your old file
-|--------------------------------------------------------------------------
-*/
+    <div class="controls">
+      <button id="btnNewGame">New Mission</button>
+      <button id="btnResume">Resume Mission</button>
+      <button id="btnClearSave">Clear Save</button>
+      <button id="btnReveal">Scan (Reveal)</button>
+      <button id="btnUndo" disabled>Undo Last Shot</button>
+      <button id="btnResetScore" class="danger">Reset Scoreboard</button>
+    </div>
+  </header>
 
-if ($path === "/test_api.php" && isset($_GET["action"])) {
-    $action = $_GET["action"];
+  <main class="layout">
+    <section class="panel">
+      <h2>Federation Task Force</h2>
+      <div id="playerBoard" class="board" aria-label="Federation sector grid"></div>
+      <p class="hint">Your starships are visible on this grid. Enemy will target these sectors.</p>
+    </section>
 
-    if ($action === "reset" && $method === "POST") {
-        require_test_mode($TEST_PASSWORD);
-        $state = default_state();
-        save_state($DATA_FILE, $state);
-        send_json(["status" => "game reset"], 200);
-    }
+    <section class="panel">
+      <h2>Enemy Sector Grid</h2>
+      <div id="cpuBoard" class="board" aria-label="Enemy sector grid"></div>
+      <p class="hint">Click a sector to fire. Enemy ships are cloaked (unless you scan).</p>
+    </section>
 
-    if ($action === "reveal" && $method === "GET") {
-        require_test_mode($TEST_PASSWORD);
-        send_json([
-            "board" => $state["test"]["board"],
-            "turn" => $state["test"]["turn"]
-        ], 200);
-    }
+    <section class="panel logpanel">
+      <h2>Captain’s Log</h2>
+      <div id="log" class="log" aria-label="Battle history log"></div>
+    </section>
+  </main>
 
-    if ($action === "placeShips" && $method === "POST") {
-        require_test_mode($TEST_PASSWORD);
-        $body = get_request_body();
+  <footer class="statusbar">
+    <div id="status" class="status">Press “New Mission” to begin.</div>
+    <div id="stats" class="status"></div>
+    <div id="serverScore" class="status"></div>
+  </footer>
 
-        if (!isset($body["ships"]) || !is_array($body["ships"])) {
-            send_json(["error" => "Invalid ships payload"], 400);
-        }
-
-        $state["test"]["board"] = create_empty_board(10);
-
-        foreach ($body["ships"] as $ship) {
-            $letter = ship_letter($ship["type"]);
-            foreach ($ship["positions"] as $pos) {
-                $coords = position_to_indexes($pos);
-                if ($coords === null) {
-                    send_json(["error" => "Invalid board position"], 400);
-                }
-                [$row, $col] = $coords;
-                $state["test"]["board"][$row][$col] = $letter;
-            }
-        }
-
-        save_state($DATA_FILE, $state);
-        send_json(["status" => "ships placed"], 200);
-    }
-
-    if ($action === "forceTurn" && $method === "POST") {
-        require_test_mode($TEST_PASSWORD);
-        $body = get_request_body();
-        if (!isset($body["player"])) {
-            send_json(["error" => "Missing player"], 400);
-        }
-        $state["test"]["turn"] = $body["player"];
-        save_state($DATA_FILE, $state);
-        send_json(["turn" => $state["test"]["turn"]], 200);
-    }
-
-    send_json(["error" => "Invalid action"], 400);
-}
-
-send_json(["error" => "not found", "path" => $path], 404);
+  <script src="game.js"></script>
+</body>
+</html>

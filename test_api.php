@@ -1,7 +1,7 @@
 <?php
 header('Content-Type: application/json');
 
-$TEST_PASSWORD = 'TEST_PASSWORD';
+$TEST_PASSWORD = "battleship-test";
 $stateFile = __DIR__ . DIRECTORY_SEPARATOR . 'test_state.json';
 
 function get_headers_lowercase() {

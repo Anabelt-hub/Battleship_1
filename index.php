@@ -273,6 +273,16 @@ if ($path === "/test/forceTurn" && $method === "POST") {
 
     send_json(["turn" => $state["test"]["turn"]], 200);
 }
+
+/*
+|--------------------------------------------------------------------------
+| Only show HTML for the root page
+|--------------------------------------------------------------------------
+*/
+
+if ($path !== "/" && $path !== "/index.php") {
+    send_json(["error" => "endpoint not found"], 404);
+}
 ?>
 <!doctype html>
 <html lang="en">

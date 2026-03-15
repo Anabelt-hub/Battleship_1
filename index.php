@@ -118,16 +118,10 @@ function ship_letter($type) {
     }
 }
 
-path = parse_url($_SERVER["REQUEST_URI"], PHP_URL_PATH);
+$path = parse_url($_SERVER["REQUEST_URI"], PHP_URL_PATH);
 $path = str_replace("/index.php", "", $path);
 $method = $_SERVER["REQUEST_METHOD"];
 $state = load_state($DATA_FILE);
-
-/*
-|--------------------------------------------------------------------------
-| API routes
-|--------------------------------------------------------------------------
-*/
 
 if ($path === "/players" && $method === "POST") {
     $body = get_request_body();
@@ -212,16 +206,13 @@ if (preg_match("#^/games/([^/]+)/join$#", $path, $matches) && $method === "POST"
 
 if ($path === "/test/reset" && $method === "POST") {
     require_test_mode($TEST_PASSWORD);
-
     $state = default_state();
     save_state($DATA_FILE, $state);
-
     send_json(["status" => "game reset"], 200);
 }
 
 if ($path === "/test/reveal" && $method === "GET") {
     require_test_mode($TEST_PASSWORD);
-
     send_json([
         "board" => $state["test"]["board"],
         "turn" => $state["test"]["turn"]
@@ -275,13 +266,7 @@ if ($path === "/test/forceTurn" && $method === "POST") {
     send_json(["turn" => $state["test"]["turn"]], 200);
 }
 
-/*
-|--------------------------------------------------------------------------
-| Only show HTML for the root page
-|--------------------------------------------------------------------------
-*/
-
-if ($path !== "/" && $path !== "/index.php") {
+if ($path !== "/" && $path !== "") {
     send_json(["error" => "endpoint not found"], 404);
 }
 ?>

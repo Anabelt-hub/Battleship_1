@@ -2,7 +2,7 @@
 header("Content-Type: application/json");
 
 $DATA_FILE = __DIR__ . DIRECTORY_SEPARATOR . "phase1_state.json";
-$TEST_PASSWORD = "battleship-test";
+$TEST_PASSWORD = "TEST_PASSWORD";
 
 function send_json($data, $status = 200) {
     http_response_code($status);

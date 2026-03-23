@@ -1,6 +1,9 @@
 <?php
+// Configuration
 $DATA_FILE = __DIR__ . DIRECTORY_SEPARATOR . "phase1_state.json";
-$TEST_PASSWORD = "TEST_PASSWORD";
+$TEST_PASSWORD = "clemson-test-2026"; // Required password
+
+// --- Helper Functions ---
 
 function send_json($data, $status = 200) {
     http_response_code($status);
@@ -19,22 +22,14 @@ function get_headers_lowercase() {
 
 function require_test_mode($password) {
     $headers = get_headers_lowercase();
-
-    if (!isset($headers["x-test-mode"]) || $headers["x-test-mode"] !== $password) {
+    // Required header: X-Test-Password
+    if (!isset($headers["x-test-password"]) || $headers["x-test-password"] !== $password) {
         send_json(["error" => "Forbidden"], 403);
     }
 }
 
 function create_empty_board($size = 10) {
-    $board = [];
-    for ($r = 0; $r < $size; $r++) {
-        $row = [];
-        for ($c = 0; $c < $size; $c++) {
-            $row[] = ".";
-        }
-        $board[] = $row;
-    }
-    return $board;
+    return array_fill(0, $size, array_fill(0, $size, "."));
 }
 
 function default_state() {
@@ -42,34 +37,15 @@ function default_state() {
         "nextPlayerId" => 1,
         "nextGameId" => 1,
         "players" => [],
-        "games" => [],
-        "test" => [
-            "board" => create_empty_board(10),
-            "turn" => "player1"
-        ]
+        "games" => []
     ];
 }
 
 function load_state($file) {
-    if (!file_exists($file)) {
-        return default_state();
-    }
-
+    if (!file_exists($file)) return default_state();
     $raw = file_get_contents($file);
-    if ($raw === false || trim($raw) === "") {
-        return default_state();
-    }
-
     $data = json_decode($raw, true);
-    if (!is_array($data)) {
-        return default_state();
-    }
-
-    if (!isset($data["players"]) || !isset($data["games"]) || !isset($data["test"])) {
-        return default_state();
-    }
-
-    return $data;
+    return is_array($data) ? $data : default_state();
 }
 
 function save_state($file, $state) {
@@ -77,252 +53,130 @@ function save_state($file, $state) {
 }
 
 function get_request_body() {
-    $raw = file_get_contents("php://input");
-    if ($raw === false || trim($raw) === "") {
-        return [];
-    }
-
-    $decoded = json_decode($raw, true);
-    return is_array($decoded) ? $decoded : [];
+    return json_decode(file_get_contents("php://input"), true) ?? [];
 }
 
-function position_to_indexes($pos) {
-    $pos = strtoupper(trim($pos));
-    $rowChar = substr($pos, 0, 1);
-    $colNum = intval(substr($pos, 1));
-
-    $row = ord($rowChar) - ord('A');
-    $col = $colNum - 1;
-
-    if ($row < 0 || $row > 9 || $col < 0 || $col > 9) {
-        return null;
-    }
-
-    return [$row, $col];
-}
-
-function ship_letter($type) {
-    switch (strtolower($type)) {
-        case "carrier":
-            return "C";
-        case "battleship":
-            return "B";
-        case "cruiser":
-            return "R";
-        case "submarine":
-            return "S";
-        case "destroyer":
-            return "D";
-        default:
-            return "?";
-    }
-}
+// --- Main Logic ---
 
 $path = parse_url($_SERVER["REQUEST_URI"], PHP_URL_PATH);
 $path = str_replace("/index.php", "", $path);
 $method = $_SERVER["REQUEST_METHOD"];
 $state = load_state($DATA_FILE);
 
-if ($path === "/players" && $method === "POST") {
-    $body = get_request_body();
+// 1. System Reset
+if ($path === "/api/reset" && $method === "POST") {
+    $state = default_state();
+    save_state($DATA_FILE, $state);
+    send_json(["status" => "reset"], 200);
+}
 
+// 2. Player Creation
+if ($path === "/api/players" && $method === "POST") {
+    $body = get_request_body();
     if (!isset($body["username"]) || trim($body["username"]) === "") {
         send_json(["error" => "username required"], 400);
     }
 
-    $playerId = "player-" . $state["nextPlayerId"];
+    $playerId = (int)$state["nextPlayerId"]; // Returns integer player_id
     $state["nextPlayerId"]++;
 
     $player = [
-        "id" => $playerId,
+        "player_id" => $playerId,
         "username" => trim($body["username"]),
+        "games_played" => 0,
         "wins" => 0,
         "losses" => 0,
-        "shots" => 0
+        "total_shots" => 0,
+        "total_hits" => 0,
+        "accuracy" => 0.0
     ];
 
     $state["players"][$playerId] = $player;
     save_state($DATA_FILE, $state);
-
-    send_json($player, 201);
+    send_json(["player_id" => $playerId], 201);
 }
 
-if ($path === "/games" && $method === "POST") {
+// 3. Player Stats
+if (preg_match("#^/api/players/(\d+)/stats$#", $path, $matches) && $method === "GET") {
+    $id = (int)$matches[1];
+    if (!isset($state["players"][$id])) {
+        send_json(["error" => "player not found"], 404);
+    }
+    send_json($state["players"][$id], 200);
+}
+
+// 4. Game Creation
+if ($path === "/api/games" && $method === "POST") {
     $body = get_request_body();
-    $gridSize = isset($body["gridSize"]) ? intval($body["gridSize"]) : 10;
+    $gridSize = isset($body["grid_size"]) ? (int)$body["grid_size"] : 10;
 
-    if ($gridSize < 5) {
-        send_json(["error" => "grid too small"], 400);
+    // Validation: 5 to 15
+    if ($gridSize < 5 || $gridSize > 15) {
+        send_json(["error" => "grid_size must be 5-15"], 400);
     }
 
-    if ($gridSize > 20) {
-        send_json(["error" => "grid too large"], 400);
-    }
-
-    $gameId = "game-" . $state["nextGameId"];
+    $gameId = (int)$state["nextGameId"];
     $state["nextGameId"]++;
 
     $game = [
-        "id" => $gameId,
+        "game_id" => $gameId,
+        "grid_size" => $gridSize,
         "status" => "waiting",
-        "gridSize" => $gridSize,
-        "players" => []
+        "current_turn_index" => 0,
+        "active_players" => 0,
+        "player_ids" => []
     ];
 
     $state["games"][$gameId] = $game;
     save_state($DATA_FILE, $state);
-
-    send_json($game, 201);
+    send_json(["game_id" => $gameId], 201);
 }
 
-if (preg_match("#^/games/([^/]+)/join$#", $path, $matches) && $method === "POST") {
-    $gameId = $matches[1];
+// 5. Joining a Game
+if (preg_match("#^/api/games/(\d+)/join$#", $path, $matches) && $method === "POST") {
+    $gameId = (int)$matches[1];
     $body = get_request_body();
 
     if (!isset($state["games"][$gameId])) {
         send_json(["error" => "game not found"], 404);
     }
 
-    if (!isset($body["playerId"]) || !isset($state["players"][$body["playerId"]])) {
+    $playerId = isset($body["player_id"]) ? (int)$body["player_id"] : 0;
+    if (!isset($state["players"][$playerId])) {
         send_json(["error" => "player not found"], 404);
     }
 
-    $game = $state["games"][$gameId];
-    $playerId = $body["playerId"];
-
-    if (!in_array($playerId, $game["players"], true)) {
-        $game["players"][] = $playerId;
-    }
-
-    if (count($game["players"]) >= 2) {
-        $game["status"] = "ready";
-    }
-
-    $state["games"][$gameId] = $game;
-    save_state($DATA_FILE, $state);
-
-    send_json($game, 200);
-}
-
-if ($path === "/test/reset" && $method === "POST") {
-    require_test_mode($TEST_PASSWORD);
-    $state = default_state();
-    save_state($DATA_FILE, $state);
-    send_json(["status" => "game reset"], 200);
-}
-
-if ($path === "/test/reveal" && $method === "GET") {
-    require_test_mode($TEST_PASSWORD);
-    send_json([
-        "board" => $state["test"]["board"],
-        "turn" => $state["test"]["turn"]
-    ], 200);
-}
-
-if ($path === "/test/placeShips" && $method === "POST") {
-    require_test_mode($TEST_PASSWORD);
-    $body = get_request_body();
-
-    if (!isset($body["ships"]) || !is_array($body["ships"])) {
-        send_json(["error" => "Invalid ships payload"], 400);
-    }
-
-    $state["test"]["board"] = create_empty_board(10);
-
-    foreach ($body["ships"] as $ship) {
-        if (!isset($ship["type"]) || !isset($ship["positions"]) || !is_array($ship["positions"])) {
-            send_json(["error" => "Invalid ship format"], 400);
-        }
-
-        $letter = ship_letter($ship["type"]);
-
-        foreach ($ship["positions"] as $pos) {
-            $coords = position_to_indexes($pos);
-
-            if ($coords === null) {
-                send_json(["error" => "Invalid board position: " . $pos], 400);
-            }
-
-            [$row, $col] = $coords;
-            $state["test"]["board"][$row][$col] = $letter;
-        }
+    $game = &$state["games"][$gameId];
+    if (!in_array($playerId, $game["player_ids"], true)) {
+        $game["player_ids"][] = $playerId;
+        $game["active_players"] = count($game["player_ids"]);
     }
 
     save_state($DATA_FILE, $state);
-    send_json(["status" => "ships placed"], 200);
+    send_json(["status" => "joined"], 200);
 }
 
-if ($path === "/test/forceTurn" && $method === "POST") {
-    require_test_mode($TEST_PASSWORD);
-    $body = get_request_body();
-
-    if (!isset($body["player"]) || trim($body["player"]) === "") {
-        send_json(["error" => "Missing player"], 400);
+// 6. Game State
+if (preg_match("#^/api/games/(\d+)$#", $path, $matches) && $method === "GET") {
+    $gameId = (int)$matches[1];
+    if (!isset($state["games"][$gameId])) {
+        send_json(["error" => "game not found"], 404);
     }
+    send_json($state["games"][$gameId], 200);
+}
 
-    $state["test"]["turn"] = $body["player"];
+// --- Test Mode Endpoints (Checkpoint B logic) ---
+
+if (preg_match("#^/api/test/games/(\d+)/restart$#", $path, $matches) && $method === "POST") {
+    require_test_mode($TEST_PASSWORD);
+    $gameId = (int)$matches[1];
+    if (!isset($state["games"][$gameId])) send_json(["error" => "not found"], 404);
+    
+    $state["games"][$gameId]["status"] = "waiting";
+    // Future: Clear moves/ships here
     save_state($DATA_FILE, $state);
-
-    send_json(["turn" => $state["test"]["turn"]], 200);
+    send_json(["status" => "restarted"], 200);
 }
 
-if ($path !== "/" && $path !== "") {
-    send_json(["error" => "endpoint not found"], 404);
-}
-?>
-<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Starfleet Tactical Simulator</title>
-  <link rel="stylesheet" href="styles.css" />
-</head>
-<body>
-  <header class="topbar">
-    <div class="brand">
-      <div class="badge">★</div>
-      <div>
-        <h1>Starfleet Tactical Simulator</h1>
-        <p class="subtitle">Sector grid engagement • Phaser/torpedo targeting • Cloaked enemy vessels</p>
-      </div>
-    </div>
-
-    <div class="controls">
-      <button id="btnNewGame">New Mission</button>
-      <button id="btnResume">Resume Mission</button>
-      <button id="btnClearSave">Clear Save</button>
-      <button id="btnReveal">Scan (Reveal)</button>
-      <button id="btnUndo" disabled>Undo Last Shot</button>
-      <button id="btnResetScore" class="danger">Reset Scoreboard</button>
-    </div>
-  </header>
-
-  <main class="layout">
-    <section class="panel">
-      <h2>Federation Task Force</h2>
-      <div id="playerBoard" class="board" aria-label="Federation sector grid"></div>
-      <p class="hint">Your starships are visible on this grid. Enemy will target these sectors.</p>
-    </section>
-
-    <section class="panel">
-      <h2>Enemy Sector Grid</h2>
-      <div id="cpuBoard" class="board" aria-label="Enemy sector grid"></div>
-      <p class="hint">Click a sector to fire. Enemy ships are cloaked (unless you scan).</p>
-    </section>
-
-    <section class="panel logpanel">
-      <h2>Captain’s Log</h2>
-      <div id="log" class="log" aria-label="Battle history log"></div>
-    </section>
-  </main>
-
-  <footer class="statusbar">
-    <div id="status" class="status">Press “New Mission” to begin.</div>
-    <div id="stats" class="status"></div>
-    <div id="serverScore" class="status"></div>
-  </footer>
-
-  <script src="game.js"></script>
-</body>
-</html>
+// 404 Fallback
+send_json(["error" => "endpoint not found"], 404);

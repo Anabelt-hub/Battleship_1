@@ -128,13 +128,12 @@ function handlePlacementClick(r, c, cell) {
 }
 
 async function submitPlacement() {
-    // 1. Verify 3 ships
     if (selectedShips.length !== 3) {
-        alert("Tactical Error: You must select exactly 3 sectors.");
+        alert("Tactical Error: Select exactly 3 sectors.");
         return;
     }
 
-    // 2. Submit YOUR ships
+    // 1. Submit your ships FIRST
     const res = await fetch(`/api/games/${gameId}/place`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -142,15 +141,15 @@ async function submitPlacement() {
     });
 
     if (res.ok) {
-        isPlacementMode = false;
-        if (btnConfirmPlacement) btnConfirmPlacement.disabled = true;
+        setStatus("Fleet deployed. Authorizing CPU battle stations...");
         
-        // 3. AUTOMATICALLY SETUP CPU
-        // This ensures the server sees 2 players with ships so status becomes 'active'
+        // 2. WAIT for the CPU to fully join and place
         await setupCPUOpponent(); 
         
-        setStatus("Fleet deployed. Battle stations!");
-        pollForActivation(); // This will now succeed immediately
+        // 3. ONLY THEN start looking for the 'active' status
+        isPlacementMode = false;
+        if (btnConfirmPlacement) btnConfirmPlacement.disabled = true;
+        pollForActivation(); 
     } else {
         const err = await res.json();
         alert("Placement Error: " + err.error);

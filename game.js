@@ -128,6 +128,13 @@ function handlePlacementClick(r, c, cell) {
 }
 
 async function submitPlacement() {
+    // 1. Verify 3 ships
+    if (selectedShips.length !== 3) {
+        alert("Tactical Error: You must select exactly 3 sectors.");
+        return;
+    }
+
+    // 2. Submit YOUR ships
     const res = await fetch(`/api/games/${gameId}/place`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -136,13 +143,48 @@ async function submitPlacement() {
 
     if (res.ok) {
         isPlacementMode = false;
-        btnConfirmPlacement.disabled = true;
-        setStatus("Fleet deployed. Waiting for server to authorize battle...");
-        pollForActivation(); // Wait for the game to become "active"
+        if (btnConfirmPlacement) btnConfirmPlacement.disabled = true;
+        
+        // 3. AUTOMATICALLY SETUP CPU
+        // This ensures the server sees 2 players with ships so status becomes 'active'
+        await setupCPUOpponent(); 
+        
+        setStatus("Fleet deployed. Battle stations!");
+        pollForActivation(); // This will now succeed immediately
     } else {
         const err = await res.json();
-        alert("Error: " + err.error);
+        alert("Placement Error: " + err.error);
     }
+}
+
+async function setupCPUOpponent() {
+    // Create and Join CPU
+    const cpuRes = await fetch('/api/players', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: "Borg Cube" })
+    });
+    const cpuData = await cpuRes.json();
+    const cpuId = cpuData.player_id;
+
+    await fetch(`/api/games/${gameId}/join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ player_id: cpuId })
+    });
+
+    // Place CPU ships via Test Mode
+    await fetch(`/api/test/games/${gameId}/ships`, {
+        method: 'POST',
+        headers: { 
+            'Content-Type': 'application/json',
+            'X-Test-Password': 'clemson-test-2026' 
+        },
+        body: JSON.stringify({ 
+            player_id: cpuId, 
+            ships: [{row:0, col:0}, {row:0, col:1}, {row:0, col:2}] 
+        })
+    });
 }
 
 // --- Phase 2: Battle Logic ---

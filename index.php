@@ -92,18 +92,41 @@ if (preg_match("#^/api/games/(\d+)/place$#", $path, $matches)) {
     $playerId = (int)($body["player_id"] ?? 0);
     $ships = $body["ships"] ?? [];
 
-    // Check data validity BEFORE checking player ID to satisfy 400/403 priority
-    if (count($ships) !== 3) send_json(["error" => "3 ships required"], 400);
-    if (!isset($state["games"][$gameId])) send_json(["error" => "not found"], 404);
+    // 1. EXISTENCE CHECK (404)
+    if (!isset($state["games"][$gameId])) {
+        send_json(["error" => "Game not found"], 404);
+    }
+    $game = &$state["games"][$gameId];
 
-    // FIX: Verify player is in the joined list
-    if (!in_array($playerId, $state["games"][$gameId]["player_ids"], true)) {
+    // 2. DATA VALIDATION FIRST (400)
+    // Check count
+    if (count($ships) !== 3) {
+        send_json(["error" => "Exactly 3 ships required"], 400);
+    }
+    // Check bounds and overlap
+    $used = [];
+    foreach ($ships as $s) {
+        if ($s["row"] < 0 || $s["row"] >= $game["grid_size"] || $s["col"] < 0 || $s["col"] >= $game["grid_size"]) {
+            send_json(["error" => "Out of bounds"], 400);
+        }
+        $coord = $s["row"] . "," . $s["col"];
+        if (in_array($coord, $used)) {
+            send_json(["error" => "Overlapping ships"], 400);
+        }
+        $used[] = $coord;
+    }
+
+    // 3. IDENTITY CHECK LAST (403)
+    if (!in_array($playerId, $game["player_ids"])) {
         send_json(["error" => "Forbidden - Not in game"], 403);
     }
 
-    $state["games"][$gameId]["ships"][$playerId] = $ships;
-    if (count($state["games"][$gameId]["ships"]) >= 2) $state["games"][$gameId]["status"] = "active";
-    
+    // 4. SAVE
+    $game["ships"][$playerId] = $ships;
+    if (count($game["ships"]) >= 2) {
+        $game["status"] = "active";
+    }
+
     save_state($DATA_FILE, $state);
     send_json(["status" => "placed", "game_id" => $gameId], 200);
 }

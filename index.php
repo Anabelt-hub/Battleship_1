@@ -44,7 +44,7 @@ if ($path === "/api/players" && $method === "POST") {
 
 if ($path === "/api/games" && $method === "POST") {
     $body = json_decode(file_get_contents("php://input"), true);
-    $id = (int)$state["nextPlayerId"]++;
+    $id = (int)$state["nextGameId"]++; // Fixed: using nextGameId instead of nextPlayerId
     $state["games"][$id] = [
         "game_id" => $id, "grid_size" => (int)($body["grid_size"] ?? 10),
         "status" => "waiting", "player_ids" => [], 
@@ -103,7 +103,7 @@ if (preg_match("#^/api/games/(\d+)/place$#", $path, $matches)) {
     // Assign the ships using object property syntax
     $game["ships"]->{$playerId} = $ships;
 
-    // --- FIX: Cast back to array only for the count check --- 
+    // --- FIX: Cast back to array only for the count check ---
     if (count((array)$game["ships"]) >= 2) {
         $game["status"] = "active";
     }
@@ -115,40 +115,32 @@ if (preg_match("#^/api/games/(\d+)/place$#", $path, $matches)) {
 // 6. Fire Move
 if (preg_match("#^/api/games/(\d+)/fire$#", $path, $matches)) {
     $gameId = (int)$matches[1];
-    $body = json_decode(file_get_contents("php://input"), true); // Fix: Use direct stream instead of undefined function
+    $body = json_decode(file_get_contents("php://input"), true);
     $playerId = (int)($body["player_id"] ?? 0);
 
-    // 1. Check if Game Exists (404)
-    if (!isset($state["games"][$gameId])) {
-        send_json(["error" => "Game not found"], 404);
-    }
+    if (!isset($state["games"][$gameId])) send_json(["error" => "Game not found"], 404);
     $game = &$state["games"][$gameId];
 
-    // 2. CHECK STATUS FIRST (400/409)
     if ($game["status"] !== "active") {
         send_json(["error" => "Firing is not allowed until all ships are placed"], 400);
     }
 
-    // 3. NOW Check Identity (403)
     if (!in_array($playerId, $game["player_ids"])) {
         send_json(["error" => "Forbidden - You are not in this game"], 403);
     }
 
-    // 4. NOW Check Turn (403)
     if ((int)$game["player_ids"][$game["current_turn_index"]] !== $playerId) {
         send_json(["error" => "Out of turn"], 403);
     }
 
-    // 5. Calculate Result
     $r = (int)($body["row"] ?? 0);
     $c = (int)($body["col"] ?? 0);
     $result = "miss";
 
-    // Check against all opponents in the game
     foreach ($game["player_ids"] as $oppId) {
         if ($oppId == $playerId) continue;
-        if (isset($game["ships"][$oppId])) {
-            foreach ($game["ships"][$oppId] as $ship) {
+        if (isset($game["ships"]->{$oppId})) { // Fixed: using object access
+            foreach ($game["ships"]->{$oppId} as $ship) {
                 if ((int)$ship['row'] === $r && (int)$ship['col'] === $c) {
                     $result = "hit";
                     break 2;
@@ -157,27 +149,23 @@ if (preg_match("#^/api/games/(\d+)/fire$#", $path, $matches)) {
         }
     }
 
-    // 6. Log Move with Timestamp
     $game["moves"][] = [
         "player_id" => $playerId,
-        "row" => $r,
-        "col" => $c,
+        "row" => $r, "col" => $c,
         "result" => $result,
-        "timestamp" => time() // Required for Checkpoint B
+        "timestamp" => time()
     ];
 
-    // 7. Rotate Turn
     $game["current_turn_index"] = ($game["current_turn_index"] + 1) % count($game["player_ids"]);
-    
     save_state($DATA_FILE, $state);
     
-    // Return required response format
     send_json([
         "result" => $result,
         "next_player_id" => (int)$game["player_ids"][$game["current_turn_index"]],
         "game_status" => $game["status"]
     ], 200);
 }
+
 // --- TEST ENDPOINTS ---
 if (preg_match("#^/api/test/games/(\d+)/ships$#", $path, $matches)) {
     $headers = array_change_key_case(getallheaders(), CASE_LOWER);
@@ -189,14 +177,12 @@ if (preg_match("#^/api/test/games/(\d+)/ships$#", $path, $matches)) {
 
     if (!isset($state["games"][$gId])) send_json(["error" => "Not found"], 404);
     
-    // Force object storage to avoid the [] vs {} bug
-    if (is_array($state["games"][$gId]["ships"])) {
+    if (!isset($state["games"][$gId]["ships"]) || is_array($state["games"][$gId]["ships"])) {
         $state["games"][$gId]["ships"] = (object)$state["games"][$gId]["ships"];
     }
 
     $state["games"][$gId]["ships"]->{$pId} = $body["ships"];
 
-    // CRITICAL: Check if this was the 2nd player to trigger 'active'
     if (count((array)$state["games"][$gId]["ships"]) >= 2) {
         $state["games"][$gId]["status"] = "active";
     }

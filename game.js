@@ -41,7 +41,7 @@ async function startNewMission() {
         body: JSON.stringify({ grid_size: SIZE })
     });
     const gData = await gRes.json();
-    gameId = gData.game_id;
+    gameId = gData.game_id; // Get ID from server
 
     // --- FIX: Save to localStorage AFTER both IDs exist ---
     localStorage.setItem('currentPlayerId', playerId);

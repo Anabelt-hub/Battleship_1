@@ -43,6 +43,10 @@ async function startNewMission() {
     const gData = await gRes.json();
     gameId = gData.game_id;
 
+    // --- FIX: Save to localStorage AFTER both IDs exist ---
+    localStorage.setItem('currentPlayerId', playerId);
+    localStorage.setItem('currentGameId', gameId);
+
     // 3. Join Game
     await fetch(`/api/games/${gameId}/join`, {
         method: 'POST',

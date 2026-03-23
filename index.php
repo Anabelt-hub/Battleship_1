@@ -1,9 +1,8 @@
 <?php
 // Configuration
 $DATA_FILE = __DIR__ . DIRECTORY_SEPARATOR . "phase1_state.json";
-$TEST_PASSWORD = "clemson-test-2026"; // Required password
+$TEST_PASSWORD = "clemson-test-2026";
 
-// --- Helper Functions ---
 
 function send_json($data, $status = 200) {
     http_response_code($status);
@@ -56,7 +55,6 @@ function get_request_body() {
     return json_decode(file_get_contents("php://input"), true) ?? [];
 }
 
-// --- Main Logic ---
 
 $path = parse_url($_SERVER["REQUEST_URI"], PHP_URL_PATH);
 $path = str_replace("/index.php", "", $path);
@@ -165,7 +163,6 @@ if (preg_match("#^/api/games/(\d+)$#", $path, $matches) && $method === "GET") {
     send_json($state["games"][$gameId], 200);
 }
 
-// --- Test Mode Endpoints (Checkpoint B logic) ---
 
 if (preg_match("#^/api/test/games/(\d+)/restart$#", $path, $matches) && $method === "POST") {
     require_test_mode($TEST_PASSWORD);

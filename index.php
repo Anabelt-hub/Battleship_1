@@ -185,15 +185,27 @@ if (preg_match("#^/api/test/games/(\d+)/ships$#", $path, $matches) && $method ==
     $body = get_request_body();
     $state["test"]["board"] = create_empty_board(10);
     foreach (($body["ships"] ?? []) as $ship) {
-        $letter = ship_letter($ship["type"] ?? "");
-        foreach (($ship["positions"] ?? []) as $pos) {
-            $coords = position_to_indexes($pos);
-            if ($coords) {
-                [$r, $c] = $coords;
-                $state["test"]["board"][$r][$c] = $letter;
-            }
+    $letter = ship_letter($ship["type"] ?? "");
+    
+    // Check for 'coordinates' (numbers) first, then fallback to 'positions' (strings)
+    $coords_to_process = $ship["coordinates"] ?? $ship["positions"] ?? [];
+    
+    foreach ($coords_to_process as $pos) {
+        if (is_array($pos)) {
+            // It's already [row, col] numbers from the autograder
+            [$r, $c] = $pos;
+        } else {
+            // It's a string like "A1", convert it
+            $res = position_to_indexes($pos);
+            if (!$res) continue;
+            [$r, $c] = $res;
+        }
+
+        if ($r >= 0 && $r < 10 && $c >= 0 && $c < 10) {
+            $state["test"]["board"][$r][$c] = $letter;
         }
     }
+}
     save_state($DATA_FILE, $state);
     send_json(["status" => "ships placed", "game_id" => $gameId], 200);
 }

@@ -100,7 +100,7 @@ if (preg_match("#^/api/games/(\d+)/place$#", $path, $matches)) {
 // 6. Fire
 if (preg_match("#^/api/games/(\d+)/fire$#", $path, $matches)) {
     $gameId = (int)$matches[1];
-    $body = get_request_body();
+    $body = json_decode(file_get_contents("php://input"), true);
     $playerId = (int)($body["player_id"] ?? 0);
 
     // 1. Check if Game Exists (404)

@@ -48,7 +48,7 @@ async function startNewMission() {
     localStorage.setItem('currentGameId', gameId);
 
     // 3. Join Game
-    await fetch(`/api/games/${gameId}/join`, {
+    await fetch(`/api/games/${gameId}/join`, { // Must use the ID in the URL
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ player_id: playerId })

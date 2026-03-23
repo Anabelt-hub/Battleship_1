@@ -1,22 +1,17 @@
 const SIZE = 10;
-// Note: Checkpoint B requires exactly 3 single-cell ships
 const MAX_PLACEMENT_SHIPS = 3;
 
-// --- State Variables ---
 let gameId = null;
 let playerId = null;
 let isPlacementMode = false;
-let selectedShips = []; // Track manual clicks
+let selectedShips = []; 
 let gameStatus = "waiting";
 
-// --- Elements ---
 const statusEl = document.getElementById("status");
 const playerBoardEl = document.getElementById("playerBoard");
 const cpuBoardEl = document.getElementById("cpuBoard");
 const btnNewGame = document.getElementById("btnNewGame");
 const btnConfirmPlacement = document.getElementById("btnConfirmPlacement");
-
-// --- Initialization ---
 
 btnNewGame.addEventListener("click", startNewMission);
 
@@ -46,15 +41,15 @@ async function startNewMission() {
     localStorage.setItem('currentPlayerId', playerId);
     localStorage.setItem('currentGameId', gameId);
 
-    // 3. YOU Join
+    // 3. YOU Join the mission
     await fetch(`/api/games/${gameId}/join`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ player_id: playerId })
     });
 
-    // --- SIMPLIFIED: Setup CPU IMMEDIATELY so it's ready before you are ---
-    await setupCPUOpponent(); 
+    // 4. PRE-REQUISITE: Setup CPU so it is ready before you are
+    await setupCPUOpponent(gameId); 
 
     isPlacementMode = true;
     selectedShips = [];
@@ -63,75 +58,25 @@ async function startNewMission() {
     renderPlacementBoard();
 }
 
-async function submitPlacement() {
-    if (selectedShips.length !== 3) return alert("Select 3 ships.");
-
-    const res = await fetch(`/api/games/${gameId}/place`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ player_id: playerId, ships: selectedShips })
-    });
-
-    if (res.ok) {
-        isPlacementMode = false;
-        btnConfirmPlacement.disabled = true;
-        // Since CPU was ready at the start, the status is now 'active'
-        pollForActivation(); 
-    }
-}
-// --- Phase 1: Manual Placement Logic ---
-
-function renderPlacementBoard() {
-    playerBoardEl.innerHTML = "";
-    cpuBoardEl.innerHTML = ""; // Clear enemy board during placement
-    
-    for (let r = 0; r < SIZE; r++) {
-        for (let c = 0; c < SIZE; c++) {
-            const cell = document.createElement("button");
-            cell.className = "cell";
-            cell.onclick = () => handlePlacementClick(r, c, cell);
-            playerBoardEl.appendChild(cell);
-        }
-    }
-}
-
-function handlePlacementClick(r, c, cell) {
-    if (!isPlacementMode) return;
-
-    const index = selectedShips.findIndex(s => s.row === r && s.col === c);
-    if (index > -1) {
-        selectedShips.splice(index, 1);
-        cell.classList.remove("ship-selected");
-    } else if (selectedShips.length < MAX_PLACEMENT_SHIPS) {
-        selectedShips.push({ row: r, col: c });
-        cell.classList.add("ship-selected");
-    }
-
-    // Enable confirm button only if exactly 3 are picked
-    if (btnConfirmPlacement) {
-        btnConfirmPlacement.disabled = (selectedShips.length !== MAX_PLACEMENT_SHIPS);
-    }
-}
-
-async function setupCPUOpponent() {
-    // 1. Create a fresh CPU Player
+async function setupCPUOpponent(currentGId) {
+    // CPU Registers
     const cpuRes = await fetch('/api/players', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: "Borg Cube" })
     });
     const cpuData = await cpuRes.json();
-    const cpuId = parseInt(cpuData.player_id); // Ensure it is an integer
+    const cpuId = cpuData.player_id;
 
-    // 2. CPU MUST Join this specific game first
-    await fetch(`/api/games/${gameId}/join`, {
+    // CPU Joins
+    await fetch(`/api/games/${currentGId}/join`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ player_id: cpuId })
     });
 
-    // 3. Place CPU ships via Test Mode
-    const testRes = await fetch(`/api/test/games/${gameId}/ships`, {
+    // CPU Places Ships via TEST MODE
+    await fetch(`/api/test/games/${currentGId}/ships`, {
         method: 'POST',
         headers: { 
             'Content-Type': 'application/json',
@@ -142,13 +87,36 @@ async function setupCPUOpponent() {
             ships: [{row:0, col:0}, {row:0, col:1}, {row:0, col:2}] 
         })
     });
-    
-    // Debug: Check if the server actually accepted the CPU ships
-    const testData = await testRes.json();
-    console.log("CPU Placement Status:", testData);
 }
 
-// --- Phase 2: Battle Logic ---
+async function submitPlacement() {
+    const currentGId = localStorage.getItem('currentGameId');
+    const currentPId = localStorage.getItem('currentPlayerId');
+
+    if (!currentGId || !currentPId) return alert("Mission Data Error.");
+    if (selectedShips.length !== 3) return alert("Select exactly 3 sectors.");
+
+    // Submit YOUR ships
+    const res = await fetch(`/api/games/${currentGId}/place`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+            player_id: parseInt(currentPId), 
+            ships: selectedShips 
+        })
+    });
+
+    if (res.ok) {
+        isPlacementMode = false;
+        if (btnConfirmPlacement) btnConfirmPlacement.disabled = true;
+        
+        setStatus("Fleet deployed. Battle stations!");
+        pollForActivation(); // Should trigger 'active' immediately now
+    } else {
+        const err = await res.json();
+        alert("Placement Error: " + err.error);
+    }
+}
 
 async function pollForActivation() {
     const res = await fetch(`/api/games/${gameId}`);
@@ -163,13 +131,40 @@ async function pollForActivation() {
     }
 }
 
+function renderPlacementBoard() {
+    playerBoardEl.innerHTML = "";
+    cpuBoardEl.innerHTML = ""; 
+    for (let r = 0; r < SIZE; r++) {
+        for (let c = 0; c < SIZE; c++) {
+            const cell = document.createElement("button");
+            cell.className = "cell";
+            cell.onclick = () => handlePlacementClick(r, c, cell);
+            playerBoardEl.appendChild(cell);
+        }
+    }
+}
+
+function handlePlacementClick(r, c, cell) {
+    if (!isPlacementMode) return;
+    const index = selectedShips.findIndex(s => s.row === r && s.col === c);
+    if (index > -1) {
+        selectedShips.splice(index, 1);
+        cell.classList.remove("ship-selected");
+    } else if (selectedShips.length < MAX_PLACEMENT_SHIPS) {
+        selectedShips.push({ row: r, col: c });
+        cell.classList.add("ship-selected");
+    }
+    if (btnConfirmPlacement) {
+        btnConfirmPlacement.disabled = (selectedShips.length !== MAX_PLACEMENT_SHIPS);
+    }
+}
+
 function renderBattleBoards() {
     cpuBoardEl.innerHTML = "";
     for (let r = 0; r < SIZE; r++) {
         for (let c = 0; c < SIZE; c++) {
             const cell = document.createElement("button");
             cell.className = "cell";
-            // Important: Add an ID so the Reveal/Scan button can find it
             cell.id = `cpu-cell-${r}-${c}`; 
             cell.onclick = () => firePhasers(r, c, cell);
             cpuBoardEl.appendChild(cell);
@@ -179,20 +174,16 @@ function renderBattleBoards() {
 
 async function firePhasers(r, c, cell) {
     if (gameStatus !== "active") return;
-
     const res = await fetch(`/api/games/${gameId}/fire`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ player_id: playerId, row: r, col: c })
     });
-
     const data = await res.json();
-    
     if (res.status === 403 && data.error === "Out of turn") {
         setStatus("Wait your turn, Captain! Recharging phasers...");
         return;
     }
-
     if (data.result === "hit") {
         cell.classList.add("hit");
         setStatus(`Direct hit at ${String.fromCharCode(65+c)}${r+1}!`);
@@ -200,7 +191,6 @@ async function firePhasers(r, c, cell) {
         cell.classList.add("miss");
         setStatus(`Phasers missed at ${String.fromCharCode(65+c)}${r+1}.`);
     }
-
     if (data.game_status === "finished") {
         setStatus("Mission accomplished. Enemy fleet neutralized!");
         gameStatus = "finished";

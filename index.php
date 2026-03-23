@@ -97,10 +97,10 @@ if (preg_match("#^/api/games/(\d+)/place$#", $path, $matches)) {
     send_json(["status" => "placed"]);
 }
 
-// 6. Fire
+// 6. Fire Move
 if (preg_match("#^/api/games/(\d+)/fire$#", $path, $matches)) {
     $gameId = (int)$matches[1];
-    $body = json_decode(file_get_contents("php://input"), true);
+    $body = json_decode(file_get_contents("php://input"), true); // Fix: Use direct stream instead of undefined function
     $playerId = (int)($body["player_id"] ?? 0);
 
     // 1. Check if Game Exists (404)
@@ -110,13 +110,12 @@ if (preg_match("#^/api/games/(\d+)/fire$#", $path, $matches)) {
     $game = &$state["games"][$gameId];
 
     // 2. CHECK STATUS FIRST (400/409)
-    // If we aren't "active", we stop here and return 400.
     if ($game["status"] !== "active") {
         send_json(["error" => "Firing is not allowed until all ships are placed"], 400);
     }
 
     // 3. NOW Check Identity (403)
-    if (!in_array($playerId, $game["player_ids"], true)) {
+    if (!in_array($playerId, $game["player_ids"])) {
         send_json(["error" => "Forbidden - You are not in this game"], 403);
     }
 
@@ -125,12 +124,45 @@ if (preg_match("#^/api/games/(\d+)/fire$#", $path, $matches)) {
         send_json(["error" => "Out of turn"], 403);
     }
 
-    $game["moves"][] = ["player_id"=>$playerId, "row"=>$r, "col"=>$c, "result"=>$result, "timestamp"=>time()];
-    $game["current_turn_index"] = ($game["current_turn_index"] + 1) % count($game["player_ids"]);
-    save_state($DATA_FILE, $state);
-    send_json(["result"=>$result, "next_player_id"=>$game["player_ids"][$game["current_turn_index"]]], 200);
-}
+    // 5. Calculate Result
+    $r = (int)($body["row"] ?? 0);
+    $c = (int)($body["col"] ?? 0);
+    $result = "miss";
 
+    // Check against all opponents in the game
+    foreach ($game["player_ids"] as $oppId) {
+        if ($oppId == $playerId) continue;
+        if (isset($game["ships"][$oppId])) {
+            foreach ($game["ships"][$oppId] as $ship) {
+                if ((int)$ship['row'] === $r && (int)$ship['col'] === $c) {
+                    $result = "hit";
+                    break 2;
+                }
+            }
+        }
+    }
+
+    // 6. Log Move with Timestamp
+    $game["moves"][] = [
+        "player_id" => $playerId,
+        "row" => $r,
+        "col" => $c,
+        "result" => $result,
+        "timestamp" => time() // Required for Checkpoint B
+    ];
+
+    // 7. Rotate Turn
+    $game["current_turn_index"] = ($game["current_turn_index"] + 1) % count($game["player_ids"]);
+    
+    save_state($DATA_FILE, $state);
+    
+    // Return required response format
+    send_json([
+        "result" => $result,
+        "next_player_id" => (int)$game["player_ids"][$game["current_turn_index"]],
+        "game_status" => $game["status"]
+    ], 200);
+}
 // --- TEST ENDPOINTS ---
 if (preg_match("#^/api/test/games/(\d+)/ships$#", $path, $matches)) {
     $headers = array_change_key_case(getallheaders(), CASE_LOWER);

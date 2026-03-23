@@ -25,7 +25,7 @@ if (btnConfirmPlacement) {
 }
 
 async function startNewMission() {
-    // 1. Create Player
+    // 1. Create Your Player
     const pRes = await fetch('/api/players', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -43,7 +43,6 @@ async function startNewMission() {
     const gData = await gRes.json();
     gameId = gData.game_id;
 
-    // --- CRITICAL FIX: Save to localStorage AFTER both IDs are received ---
     localStorage.setItem('currentPlayerId', playerId);
     localStorage.setItem('currentGameId', gameId);
 
@@ -54,14 +53,44 @@ async function startNewMission() {
         body: JSON.stringify({ player_id: playerId })
     });
 
-    // 4. Enter Placement Mode
+    // --- NEW: Add a CPU Player so the game can start! ---
+    // A. Create CPU Player
+    const cpuRes = await fetch('/api/players', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: "Borg Cube" })
+    });
+    const cpuData = await cpuRes.json();
+    const cpuId = cpuData.player_id;
+    localStorage.setItem('cpuPlayerId', cpuId); // Store for the Scan/Reveal button
+
+    // B. CPU Joins Game
+    await fetch(`/api/games/${gameId}/join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ player_id: cpuId })
+    });
+
+    // C. CPU Places Ships (Test Mode makes this easy)
+    await fetch(`/api/test/games/${gameId}/ships`, {
+        method: 'POST',
+        headers: { 
+            'Content-Type': 'application/json',
+            'X-Test-Password': 'clemson-test-2026' 
+        },
+        body: JSON.stringify({ 
+            player_id: cpuId, 
+            ships: [{row:0, col:0}, {row:0, col:1}, {row:0, col:2}] 
+        })
+    });
+
+    // 4. Enter Placement Mode for YOU
     isPlacementMode = true;
     selectedShips = [];
     gameStatus = "waiting";
-    setStatus("Placement Mode: Select 3 sectors on your board to station your fleet.");
+    setStatus("Placement Mode: Select 3 sectors on your board.");
     renderPlacementBoard();
 }
-
 // --- Phase 1: Manual Placement Logic ---
 
 function renderPlacementBoard() {

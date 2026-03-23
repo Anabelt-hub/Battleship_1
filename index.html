@@ -59,96 +59,11 @@
     <div id="serverScore" class="status"></div>
   </footer>
 
-  <script>
-    // --- Manual Placement Logic for Checkpoint B ---
-    let selectedShips = [];
-    let isPlacementMode = false;
-
-    // Triggered when "New Mission" is clicked
-    document.getElementById('btnNewGame').addEventListener('click', () => {
-        selectedShips = [];
-        isPlacementMode = true;
-        document.getElementById('status').innerText = "System: Awaiting fleet deployment. Select 3 sectors.";
-        document.getElementById('playerBoard').classList.add('placement-active');
-        document.getElementById('btnConfirmPlacement').disabled = true;
-        renderEmptyPlacementBoard();
-    });
-
-    // Renders the board and adds click listeners for placement
-    function renderEmptyPlacementBoard() {
-        const board = document.getElementById('playerBoard');
-        board.innerHTML = '';
-        for (let r = 0; r < 10; r++) {
-            for (let c = 0; c < 10; c++) {
-                const cell = document.createElement('div');
-                cell.className = 'cell';
-                cell.id = `player-cell-${r}-${c}`;
-                cell.onclick = () => handleCellSelection(r, c);
-                board.appendChild(cell);
-            }
-        }
-    }
-
-    function handleCellSelection(r, c) {
-        if (!isPlacementMode) return;
-
-        const index = selectedShips.findIndex(s => s.row === r && s.col === c);
-        const cell = document.getElementById(`player-cell-${r}-${c}`);
-
-        if (index > -1) {
-            // Deselect
-            selectedShips.splice(index, 1);
-            cell.classList.remove('ship-selected');
-        } else if (selectedShips.length < 3) {
-            // Select
-            selectedShips.push({ row: r, col: c });
-            cell.classList.add('ship-selected');
-        }
-
-        // Enable button only when exactly 3 ships are picked
-        document.getElementById('btnConfirmPlacement').disabled = (selectedShips.length !== 3);
-    }
-
-    // Submit ships to Backend
-    document.getElementById('btnConfirmPlacement').addEventListener('click', async () => {
-    // 1. Force a fresh retrieval of IDs from localStorage
-    const gId = localStorage.getItem('currentGameId');
-    const pId = localStorage.getItem('currentPlayerId');
-
-    // 2. Defensive Check: If these are missing, the server will return "Not found"
-    if (!gId || !pId || gId === "null" || pId === "null") {
-        alert("Mission Data Lost: Please click 'New Mission' to re-establish a link to Starfleet Command.");
-        return;
-    }
-
-    // 3. Send the placement request
-    const response = await fetch(`/api/games/${gId}/place`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-            player_id: parseInt(pId), // IDs must be integers
-            ships: selectedShips      // Must be exactly 3
-        })
-    });
-
-    if (response.ok) {
-        isPlacementMode = false;
-        document.getElementById('playerBoard').classList.remove('placement-active');
-        document.getElementById('status').innerText = "Fleet deployed. Synchronizing with tactical grid...";
-        document.getElementById('btnConfirmPlacement').disabled = true;
-        
-        // 4. Start polling the server to see when the game status becomes 'active'
-        pollForActivation(); 
-    } else {
-        const err = await response.json();
-        alert("Tactical Error: " + (err.error || "Server could not locate this mission."));
-    }
-});
-
-    // Scan (Reveal) Button Logic
+  <script src="game.js"></script> <script>
+    // ONLY keep the scan logic here, remove the placement listeners
     document.getElementById('btnReveal').addEventListener('click', async () => {
         const gameId = localStorage.getItem('currentGameId');
-        const cpuId = localStorage.getItem('cpuPlayerId'); // ID of the opponent
+        const cpuId = 2; // For testing, assume CPU is player 2
 
         const response = await fetch(`/api/test/games/${gameId}/board/${cpuId}`, {
             headers: { 'X-Test-Password': 'clemson-test-2026' }
@@ -157,10 +72,11 @@
         if (response.ok) {
             const data = await response.json();
             data.ships.forEach(s => {
-                document.getElementById(`cpu-cell-${s.row}-${s.col}`).classList.add('revealed-ship');
+                const cell = document.getElementById(`cpu-cell-${s.row}-${s.col}`);
+                if (cell) cell.classList.add('revealed-ship');
             });
         }
     });
-  </script>
+</script>
 </body>
 </html>

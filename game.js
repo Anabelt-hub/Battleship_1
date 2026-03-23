@@ -25,7 +25,7 @@ if (btnConfirmPlacement) {
 }
 
 async function startNewMission() {
-    // 1. Create Your Player
+    // 1. Create YOUR Player
     const pRes = await fetch('/api/players', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -34,26 +34,28 @@ async function startNewMission() {
     const pData = await pRes.json();
     playerId = pData.player_id;
 
-    // 2. Create Game
+    // 2. Create the Game
     const gRes = await fetch('/api/games', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ grid_size: SIZE })
+        body: JSON.stringify({ grid_size: 10 })
     });
     const gData = await gRes.json();
     gameId = gData.game_id;
 
+    // Save IDs immediately for index.html to find
     localStorage.setItem('currentPlayerId', playerId);
     localStorage.setItem('currentGameId', gameId);
 
-    // 3. Join Game
+    // 3. YOU Join the Game
     await fetch(`/api/games/${gameId}/join`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ player_id: playerId })
     });
 
-    // --- NEW: Add a CPU Player so the game can start! ---
+    // --- CPU AUTOMATION: Ensure 2 players are ready ---
+    
     // A. Create CPU Player
     const cpuRes = await fetch('/api/players', {
         method: 'POST',
@@ -62,7 +64,7 @@ async function startNewMission() {
     });
     const cpuData = await cpuRes.json();
     const cpuId = cpuData.player_id;
-    localStorage.setItem('cpuPlayerId', cpuId); // Store for the Scan/Reveal button
+    localStorage.setItem('cpuPlayerId', cpuId); // Needed for Reveal/Scan
 
     // B. CPU Joins Game
     await fetch(`/api/games/${gameId}/join`, {
@@ -71,7 +73,7 @@ async function startNewMission() {
         body: JSON.stringify({ player_id: cpuId })
     });
 
-    // C. CPU Places Ships (Test Mode makes this easy)
+    // C. CPU Places Ships via TEST MODE
     await fetch(`/api/test/games/${gameId}/ships`, {
         method: 'POST',
         headers: { 
@@ -84,11 +86,11 @@ async function startNewMission() {
         })
     });
 
-    // 4. Enter Placement Mode for YOU
+    // 4. Start YOUR Placement Phase
     isPlacementMode = true;
     selectedShips = [];
     gameStatus = "waiting";
-    setStatus("Placement Mode: Select 3 sectors on your board.");
+    setStatus("Placement Mode: Select 3 sectors on your board to station your fleet.");
     renderPlacementBoard();
 }
 // --- Phase 1: Manual Placement Logic ---

@@ -44,10 +44,12 @@ if ($path === "/api/players" && $method === "POST") {
 
 if ($path === "/api/games" && $method === "POST") {
     $body = json_decode(file_get_contents("php://input"), true);
-    $id = (int)$state["nextGameId"]++;
+    $id = (int)$state["nextPlayerId"]++;
     $state["games"][$id] = [
         "game_id" => $id, "grid_size" => (int)($body["grid_size"] ?? 10),
-        "status" => "waiting", "player_ids" => [], "ships" => [], "moves" => [], "current_turn_index" => 0
+        "status" => "waiting", "player_ids" => [], 
+        "ships" => new stdClass(), // FORCE {} instead of []
+        "moves" => [], "current_turn_index" => 0
     ];
     save_state($DATA_FILE, $state);
     send_json(["game_id" => $id], 201);
@@ -65,7 +67,7 @@ if (preg_match("#^/api/games/(\d+)/join$#", $path, $matches)) {
     send_json(["status" => "joined"]);
 }
 
-// CRITICAL FIX: POST /api/games/{id}/place
+// CRITICAL FIX: POST /api/games/{id}/place 
 if (preg_match("#^/api/games/(\d+)/place$#", $path, $matches)) {
     $gameId = (int)$matches[1];
     $body = json_decode(file_get_contents("php://input"), true);
@@ -77,6 +79,7 @@ if (preg_match("#^/api/games/(\d+)/place$#", $path, $matches)) {
 
     // 1. DATA VALIDATION (Return 400)
     if (count($ships) !== 3) send_json(["error" => "Exactly 3 ships required"], 400);
+    
     $used = [];
     foreach ($ships as $s) {
         if ($s["row"] < 0 || $s["row"] >= $game["grid_size"] || $s["col"] < 0 || $s["col"] >= $game["grid_size"]) {
@@ -88,10 +91,22 @@ if (preg_match("#^/api/games/(\d+)/place$#", $path, $matches)) {
     }
 
     // 2. IDENTITY CHECK (Return 403)
-    if (!in_array($playerId, $game["player_ids"])) send_json(["error" => "Forbidden"], 403);
+    if (!in_array($playerId, $game["player_ids"])) {
+        send_json(["error" => "Forbidden"], 403);
+    }
 
-    $game["ships"][$playerId] = $ships;
-    if (count($game["ships"]) >= 2) $game["status"] = "active";
+    // --- FIX: Force ships to be an object so JSON uses {} instead of [] ---
+    if (!isset($game["ships"]) || is_array($game["ships"])) {
+        $game["ships"] = (object)$game["ships"];
+    }
+
+    // Assign the ships using object property syntax
+    $game["ships"]->{$playerId} = $ships;
+
+    // --- FIX: Cast back to array only for the count check --- 
+    if (count((array)$game["ships"]) >= 2) {
+        $game["status"] = "active";
+    }
     
     save_state($DATA_FILE, $state);
     send_json(["status" => "placed"]);

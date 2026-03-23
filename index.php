@@ -166,6 +166,19 @@ if (preg_match("#^/api/games/(\d+)/fire$#", $path, $matches)) {
     ], 200);
 }
 
+// --- GET Single Game Status ---
+if (preg_match("#^/api/games/(\d+)$#", $path, $matches)) {
+    $gameId = (int)$matches[1];
+    
+    // Check if the game exists in your state
+    if (!isset($state["games"][$gameId])) {
+        send_json(["error" => "Game not found"], 404);
+    }
+    
+    // Return the full game object so the frontend can check .status
+    send_json($state["games"][$gameId]);
+}
+
 // --- TEST ENDPOINTS ---
 if (preg_match("#^/api/test/games/(\d+)/ships$#", $path, $matches)) {
     $headers = array_change_key_case(getallheaders(), CASE_LOWER);

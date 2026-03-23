@@ -59,24 +59,6 @@
     <div id="serverScore" class="status"></div>
   </footer>
 
-  <script src="game.js"></script> <script>
-    // ONLY keep the scan logic here, remove the placement listeners
-    document.getElementById('btnReveal').addEventListener('click', async () => {
-        const gameId = localStorage.getItem('currentGameId');
-        const cpuId = 2; // For testing, assume CPU is player 2
-
-        const response = await fetch(`/api/test/games/${gameId}/board/${cpuId}`, {
-            headers: { 'X-Test-Password': 'clemson-test-2026' }
-        });
-
-        if (response.ok) {
-            const data = await response.json();
-            data.ships.forEach(s => {
-                const cell = document.getElementById(`cpu-cell-${s.row}-${s.col}`);
-                if (cell) cell.classList.add('revealed-ship');
-            });
-        }
-    });
-</script>
+  <script src="game.js"></script>
 </body>
 </html>

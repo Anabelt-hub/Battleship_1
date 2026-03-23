@@ -182,10 +182,28 @@ if (preg_match("#^/api/games/(\d+)/fire$#", $path, $matches)) {
 if (preg_match("#^/api/test/games/(\d+)/ships$#", $path, $matches)) {
     $headers = array_change_key_case(getallheaders(), CASE_LOWER);
     if (($headers["x-test-password"] ?? "") !== $TEST_PASSWORD) send_json(["error"=>"Forbidden"], 403);
+    
     $body = json_decode(file_get_contents("php://input"), true);
-    $state["games"][(int)$matches[1]]["ships"][(int)$body["player_id"]] = $body["ships"];
+    $gameId = (int)$matches[1];
+    $playerId = (int)($body["player_id"] ?? 0); // Force integer
+    
+    if (!isset($state["games"][$gameId])) send_json(["error" => "Not found"], 404);
+    $game = &$state["games"][$gameId];
+
+    // Force ships to be an object for consistency
+    if (!isset($game["ships"]) || is_array($game["ships"])) {
+        $game["ships"] = (object)[];
+    }
+
+    $game["ships"]->{$playerId} = $body["ships"];
+
+    // Check for activation
+    if (count((array)$game["ships"]) >= 2) {
+        $game["status"] = "active";
+    }
+
     save_state($DATA_FILE, $state);
-    send_json(["status" => "ships placed"]);
+    send_json(["status" => "ships placed", "game_status" => $game["status"]]);
 }
 
 send_json(["error" => "Not found"], 404);

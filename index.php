@@ -121,21 +121,27 @@ if (preg_match("#^/api/games/(\d+)/fire$#", $path, $matches)) {
     $gameId = (int)$matches[1];
     $body = get_request_body();
     $playerId = (int)($body["player_id"] ?? 0);
+
+    // 1. Check if Game Exists (404)
+    if (!isset($state["games"][$gameId])) {
+        send_json(["error" => "Game not found"], 404);
+    }
     $game = &$state["games"][$gameId];
 
-    if (!isset($game) || !in_array($playerId, $game["player_ids"])) send_json(["error" => "Forbidden"], 403);
-    
-    // Autograder requirement: 400 if firing before ships are ready
-    if ($game["status"] !== "active") send_json(["error" => "Waiting for ships"], 400);
-    if ($game["player_ids"][$game["current_turn_index"]] !== $playerId) send_json(["error" => "Out of turn"], 403);
+    // 2. CHECK STATUS FIRST (400/409)
+    // If we aren't "active", we stop here and return 400.
+    if ($game["status"] !== "active") {
+        send_json(["error" => "Firing is not allowed until all ships are placed"], 400);
+    }
 
-    $r = (int)$body["row"]; $c = (int)$body["col"];
-    $result = "miss";
-    foreach ($game["player_ids"] as $opp) {
-        if ($opp === $playerId) continue;
-        foreach (($game["ships"][$opp] ?? []) as $s) {
-            if ($s["row"] === $r && $s["col"] === $c) $result = "hit";
-        }
+    // 3. NOW Check Identity (403)
+    if (!in_array($playerId, $game["player_ids"], true)) {
+        send_json(["error" => "Forbidden - You are not in this game"], 403);
+    }
+
+    // 4. NOW Check Turn (403)
+    if ((int)$game["player_ids"][$game["current_turn_index"]] !== $playerId) {
+        send_json(["error" => "Out of turn"], 403);
     }
 
     $game["moves"][] = ["player_id"=>$playerId, "row"=>$r, "col"=>$c, "result"=>$result, "timestamp"=>time()];

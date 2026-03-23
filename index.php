@@ -21,7 +21,7 @@ function get_headers_lowercase() {
 function require_test_mode($password) {
     $headers = get_headers_lowercase();
     if (!isset($headers["x-test-password"]) || $headers["x-test-password"] !== $password) {
-        send_json(["error" => "Forbidden"], 403);
+        send_json(["error" => "Forbidden - Test Password Required"], 403);
     }
 }
 
@@ -70,7 +70,15 @@ if ($path === "/api/games" && $method === "POST") {
     $size = (int)($body["grid_size"] ?? 10);
     if ($size < 5 || $size > 15) send_json(["error" => "invalid size"], 400);
     $id = (int)$state["nextGameId"]++;
-    $state["games"][$id] = ["game_id"=>$id, "grid_size"=>$size, "status"=>"waiting", "player_ids"=>[], "ships"=>[], "moves"=>[], "current_turn_index"=>0];
+    $state["games"][$id] = [
+        "game_id" => $id, 
+        "grid_size" => $size, 
+        "status" => "waiting", 
+        "player_ids" => [], 
+        "ships" => [], 
+        "moves" => [], 
+        "current_turn_index" => 0
+    ];
     save_state($DATA_FILE, $state);
     send_json(["game_id" => $id], 201);
 }
@@ -79,9 +87,7 @@ if (preg_match("#^/api/games/(\d+)/join$#", $path, $matches) && $method === "POS
     $gameId = (int)$matches[1];
     $body = get_request_body();
     $playerId = (int)($body["player_id"] ?? 0);
-    if (!isset($state["games"][$gameId])) send_json(["error" => "game not found"], 404);
-    if (!isset($state["players"][$playerId])) send_json(["error" => "player not found"], 404);
-    
+    if (!isset($state["games"][$gameId]) || !isset($state["players"][$playerId])) send_json(["error" => "not found"], 404);
     if (!in_array($playerId, $state["games"][$gameId]["player_ids"])) {
         $state["games"][$gameId]["player_ids"][] = $playerId;
     }
@@ -89,17 +95,17 @@ if (preg_match("#^/api/games/(\d+)/join$#", $path, $matches) && $method === "POS
     send_json(["status" => "joined", "game_id" => $gameId], 200);
 }
 
-// 4. Ship Placement (Production) 
+// 4. Ship Placement (Production)
 if (preg_match("#^/api/games/(\d+)/place$#", $path, $matches) && $method === "POST") {
     $gameId = (int)$matches[1];
     $body = get_request_body();
     $playerId = (int)($body["player_id"] ?? 0);
     
-    // First: Basic Validation (400s)
+    // VALIDATION FIRST (To return 400 instead of 403)
     $ships = $body["ships"] ?? [];
     if (count($ships) !== 3) send_json(["error" => "Exactly 3 ships required"], 400);
+    if (!isset($state["games"][$gameId])) send_json(["error" => "game not found"], 404);
 
-    if (!isset($state["games"][$gameId])) send_json(["error" => "not found"], 404);
     $gridSize = $state["games"][$gameId]["grid_size"];
     $used = [];
     foreach ($ships as $s) {
@@ -109,7 +115,7 @@ if (preg_match("#^/api/games/(\d+)/place$#", $path, $matches) && $method === "PO
         $used[] = $coord;
     }
 
-    // Second: Identity Validation (403s)
+    // IDENTITY CHECK (After 400 checks)
     if (!isset($state["players"][$playerId]) || !in_array($playerId, $state["games"][$gameId]["player_ids"])) {
         send_json(["error" => "Forbidden"], 403);
     }
@@ -120,16 +126,23 @@ if (preg_match("#^/api/games/(\d+)/place$#", $path, $matches) && $method === "PO
     send_json(["status" => "placed", "game_id" => $gameId], 200);
 }
 
-// 5. Fire Move (Production) 
+// 5. Fire Move (Production)
 if (preg_match("#^/api/games/(\d+)/fire$#", $path, $matches) && $method === "POST") {
     $gameId = (int)$matches[1];
     $body = get_request_body();
     $playerId = (int)($body["player_id"] ?? 0);
+    
+    if (!isset($state["games"][$gameId])) send_json(["error" => "not found"], 404);
     $game = &$state["games"][$gameId];
 
-    if (!isset($game) || !in_array($playerId, $game["player_ids"])) send_json(["error" => "Forbidden"], 403);
+    // Identity check
+    if (!in_array($playerId, $game["player_ids"])) send_json(["error" => "Forbidden"], 403);
+    
+    // FIRE GATING: Return 400/409
     if ($game["status"] !== "active") send_json(["error" => "Wait for ships"], 400);
-    if ($game["player_ids"][$game["current_turn_index"]] !== $playerId) send_json(["error" => "Out of turn"], 403);
+    
+    // TURN CHECK
+    if ((int)$game["player_ids"][$game["current_turn_index"]] !== $playerId) send_json(["error" => "Out of turn"], 403);
 
     $r = (int)$body["row"]; $c = (int)$body["col"];
     $result = "miss";
@@ -141,7 +154,7 @@ if (preg_match("#^/api/games/(\d+)/fire$#", $path, $matches) && $method === "POS
     send_json(["result" => $result, "next_player_id" => $game["player_ids"][$game["current_turn_index"]]], 200);
 }
 
-// --- TEST MODE ONLY  ---
+// --- TEST MODE ONLY ---
 if (preg_match("#^/api/test/games/(\d+)/ships$#", $path, $matches)) {
     require_test_mode($TEST_PASSWORD);
     $gameId = (int)$matches[1];

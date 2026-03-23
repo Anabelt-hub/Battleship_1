@@ -184,26 +184,25 @@ if (preg_match("#^/api/test/games/(\d+)/ships$#", $path, $matches)) {
     if (($headers["x-test-password"] ?? "") !== $TEST_PASSWORD) send_json(["error"=>"Forbidden"], 403);
     
     $body = json_decode(file_get_contents("php://input"), true);
-    $gameId = (int)$matches[1];
-    $playerId = (int)($body["player_id"] ?? 0); // Force integer
-    
-    if (!isset($state["games"][$gameId])) send_json(["error" => "Not found"], 404);
-    $game = &$state["games"][$gameId];
+    $gId = (int)$matches[1];
+    $pId = (int)($body["player_id"] ?? 0);
 
-    // Force ships to be an object for consistency
-    if (!isset($game["ships"]) || is_array($game["ships"])) {
-        $game["ships"] = (object)[];
+    if (!isset($state["games"][$gId])) send_json(["error" => "Not found"], 404);
+    
+    // Force object storage to avoid the [] vs {} bug
+    if (is_array($state["games"][$gId]["ships"])) {
+        $state["games"][$gId]["ships"] = (object)$state["games"][$gId]["ships"];
     }
 
-    $game["ships"]->{$playerId} = $body["ships"];
+    $state["games"][$gId]["ships"]->{$pId} = $body["ships"];
 
-    // Check for activation
-    if (count((array)$game["ships"]) >= 2) {
-        $game["status"] = "active";
+    // CRITICAL: Check if this was the 2nd player to trigger 'active'
+    if (count((array)$state["games"][$gId]["ships"]) >= 2) {
+        $state["games"][$gId]["status"] = "active";
     }
 
     save_state($DATA_FILE, $state);
-    send_json(["status" => "ships placed", "game_status" => $game["status"]]);
+    send_json(["status" => "ships placed", "game_status" => $state["games"][$gId]["status"]]);
 }
 
 send_json(["error" => "Not found"], 404);

@@ -41,14 +41,14 @@ async function startNewMission() {
         body: JSON.stringify({ grid_size: SIZE })
     });
     const gData = await gRes.json();
-    gameId = gData.game_id; // Get ID from server
+    gameId = gData.game_id;
 
-    // --- FIX: Save to localStorage AFTER both IDs exist ---
+    // --- CRITICAL FIX: Save to localStorage AFTER both IDs are received ---
     localStorage.setItem('currentPlayerId', playerId);
     localStorage.setItem('currentGameId', gameId);
 
     // 3. Join Game
-    await fetch(`/api/games/${gameId}/join`, { // Must use the ID in the URL
+    await fetch(`/api/games/${gameId}/join`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ player_id: playerId })

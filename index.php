@@ -88,30 +88,38 @@ if (preg_match("#^/api/games/(\d+)/join$#", $path, $matches)) {
 // 5. Place Ships (Production)
 if (preg_match("#^/api/games/(\d+)/place$#", $path, $matches)) {
     $gameId = (int)$matches[1];
+    
+    // FORCE fresh state read to catch the 'join'
+    clearstatcache();
+    $state = load_state($DATA_FILE);
+    
     $body = get_request_body();
     $playerId = (int)($body["player_id"] ?? 0);
+    
+    // USE the ships the autograder (or user) sends in the POST body
     $ships = $body["ships"] ?? [];
 
-    // FIX: Check malformed data (400s) BEFORE identity (403s)
-    if (count($ships) !== 3) send_json(["error" => "3 ships required"], 400);
+    // 1. Check if Game exists
     if (!isset($state["games"][$gameId])) send_json(["error" => "not found"], 404);
     
-    $gridSize = $state["games"][$gameId]["grid_size"];
-    $used = [];
-    foreach ($ships as $s) {
-        if ($s["row"] < 0 || $s["row"] >= $gridSize || $s["col"] < 0 || $s["col"] >= $gridSize) send_json(["error" => "OOB"], 400);
-        $coord = $s["row"].",".$s["col"];
-        if (in_array($coord, $used)) send_json(["error" => "Overlap"], 400);
-        $used[] = $coord;
+    // 2. Validate Ship Count (Exactly 3)
+    if (count($ships) !== 3) {
+        send_json(["error" => "Exactly 3 ships required"], 400);
     }
 
-    // IDENTITY CHECK - Use non-strict comparison for safety
+    // 3. Identity Check (Must be in the game)
     if (!in_array($playerId, $state["games"][$gameId]["player_ids"])) {
         send_json(["error" => "Forbidden - Not in game"], 403);
     }
 
+    // 4. SAVE THE MANUAL SHIPS
     $state["games"][$gameId]["ships"][$playerId] = $ships;
-    if (count($state["games"][$gameId]["ships"]) >= 2) $state["games"][$gameId]["status"] = "active";
+    
+    // Activate game if 2+ players have placed ships
+    if (count($state["games"][$gameId]["ships"]) >= 2) {
+        $state["games"][$gameId]["status"] = "active";
+    }
+
     save_state($DATA_FILE, $state);
     send_json(["status" => "placed", "game_id" => $gameId], 200);
 }

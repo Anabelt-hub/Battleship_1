@@ -158,23 +158,24 @@ async function submitPlacement() {
 }
 
 async function setupCPUOpponent() {
-    // Create and Join CPU
+    // 1. Create a fresh CPU Player
     const cpuRes = await fetch('/api/players', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: "Borg Cube" })
     });
     const cpuData = await cpuRes.json();
-    const cpuId = cpuData.player_id;
+    const cpuId = parseInt(cpuData.player_id); // Ensure it is an integer
 
+    // 2. CPU MUST Join this specific game first
     await fetch(`/api/games/${gameId}/join`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ player_id: cpuId })
     });
 
-    // Place CPU ships via Test Mode
-    await fetch(`/api/test/games/${gameId}/ships`, {
+    // 3. Place CPU ships via Test Mode
+    const testRes = await fetch(`/api/test/games/${gameId}/ships`, {
         method: 'POST',
         headers: { 
             'Content-Type': 'application/json',
@@ -185,6 +186,10 @@ async function setupCPUOpponent() {
             ships: [{row:0, col:0}, {row:0, col:1}, {row:0, col:2}] 
         })
     });
+    
+    // Debug: Check if the server actually accepted the CPU ships
+    const testData = await testRes.json();
+    console.log("CPU Placement Status:", testData);
 }
 
 // --- Phase 2: Battle Logic ---

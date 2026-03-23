@@ -25,7 +25,7 @@ if (btnConfirmPlacement) {
 }
 
 async function startNewMission() {
-    // 1. Create YOUR Player
+    // 1. Create Your Player
     const pRes = await fetch('/api/players', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -34,7 +34,7 @@ async function startNewMission() {
     const pData = await pRes.json();
     playerId = pData.player_id;
 
-    // 2. Create the Game
+    // 2. Create Game
     const gRes = await fetch('/api/games', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -43,55 +43,41 @@ async function startNewMission() {
     const gData = await gRes.json();
     gameId = gData.game_id;
 
-    // Save IDs immediately for index.html to find
     localStorage.setItem('currentPlayerId', playerId);
     localStorage.setItem('currentGameId', gameId);
 
-    // 3. YOU Join the Game
+    // 3. YOU Join
     await fetch(`/api/games/${gameId}/join`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ player_id: playerId })
     });
 
-    // --- CPU AUTOMATION: Ensure 2 players are ready ---
-    
-    // A. Create CPU Player
-    const cpuRes = await fetch('/api/players', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: "Borg Cube" })
-    });
-    const cpuData = await cpuRes.json();
-    const cpuId = cpuData.player_id;
-    localStorage.setItem('cpuPlayerId', cpuId); // Needed for Reveal/Scan
+    // --- SIMPLIFIED: Setup CPU IMMEDIATELY so it's ready before you are ---
+    await setupCPUOpponent(); 
 
-    // B. CPU Joins Game
-    await fetch(`/api/games/${gameId}/join`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ player_id: cpuId })
-    });
-
-    // C. CPU Places Ships via TEST MODE
-    await fetch(`/api/test/games/${gameId}/ships`, {
-        method: 'POST',
-        headers: { 
-            'Content-Type': 'application/json',
-            'X-Test-Password': 'clemson-test-2026' 
-        },
-        body: JSON.stringify({ 
-            player_id: cpuId, 
-            ships: [{row:0, col:0}, {row:0, col:1}, {row:0, col:2}] 
-        })
-    });
-
-    // 4. Start YOUR Placement Phase
     isPlacementMode = true;
     selectedShips = [];
     gameStatus = "waiting";
-    setStatus("Placement Mode: Select 3 sectors on your board to station your fleet.");
+    setStatus("Placement Mode: Select 3 sectors, then click Confirm.");
     renderPlacementBoard();
+}
+
+async function submitPlacement() {
+    if (selectedShips.length !== 3) return alert("Select 3 ships.");
+
+    const res = await fetch(`/api/games/${gameId}/place`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ player_id: playerId, ships: selectedShips })
+    });
+
+    if (res.ok) {
+        isPlacementMode = false;
+        btnConfirmPlacement.disabled = true;
+        // Since CPU was ready at the start, the status is now 'active'
+        pollForActivation(); 
+    }
 }
 // --- Phase 1: Manual Placement Logic ---
 
@@ -124,35 +110,6 @@ function handlePlacementClick(r, c, cell) {
     // Enable confirm button only if exactly 3 are picked
     if (btnConfirmPlacement) {
         btnConfirmPlacement.disabled = (selectedShips.length !== MAX_PLACEMENT_SHIPS);
-    }
-}
-
-async function submitPlacement() {
-    if (selectedShips.length !== 3) {
-        alert("Tactical Error: Select exactly 3 sectors.");
-        return;
-    }
-
-    // 1. Submit your ships FIRST
-    const res = await fetch(`/api/games/${gameId}/place`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ player_id: playerId, ships: selectedShips })
-    });
-
-    if (res.ok) {
-        setStatus("Fleet deployed. Authorizing CPU battle stations...");
-        
-        // 2. WAIT for the CPU to fully join and place
-        await setupCPUOpponent(); 
-        
-        // 3. ONLY THEN start looking for the 'active' status
-        isPlacementMode = false;
-        if (btnConfirmPlacement) btnConfirmPlacement.disabled = true;
-        pollForActivation(); 
-    } else {
-        const err = await res.json();
-        alert("Placement Error: " + err.error);
     }
 }
 

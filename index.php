@@ -29,7 +29,7 @@ function create_empty_board($size = 10) {
 }
 
 function load_state($file) {
-    if (!file_exists($file)) return ["nextPlayerId"=>1, "nextGameId"=>1, "players"=>[], "games"=>[], "test"=>["board"=>create_empty_board(10)]];
+    if (!file_exists($file)) return ["nextPlayerId"=>1, "nextGameId"=>1, "players"=>[], "games"=>[]];
     return json_decode(file_get_contents($file), true) ?? [];
 }
 
@@ -50,78 +50,129 @@ $state = load_state($DATA_FILE);
 // Serve Frontend
 if ($path === "/" || $path === "" || $path === "/index.php") { include_once("index.html"); exit; }
 
-// API Endpoints
+// POST /api/reset
 if ($path === "/api/reset" && $method === "POST") {
-    $state = ["nextPlayerId"=>1, "nextGameId"=>1, "players"=>[], "games"=>[], "test"=>["board"=>create_empty_board(10)]];
+    $state = ["nextPlayerId"=>1, "nextGameId"=>1, "players"=>[], "games"=>[]];
     save_state($DATA_FILE, $state);
     send_json(["status" => "reset"], 200);
 }
 
+// POST /api/players
 if ($path === "/api/players" && $method === "POST") {
     $body = get_request_body();
     if (!isset($body["username"])) send_json(["error" => "required"], 400);
     $id = (int)$state["nextPlayerId"]++;
-    $state["players"][$id] = ["player_id"=>$id, "username"=>$body["username"], "games_played"=>0, "wins"=>0, "losses"=>0, "total_shots"=>0, "total_hits"=>0, "accuracy"=>0.0];
+    $state["players"][$id] = ["player_id"=>$id, "username"=>$body["username"], "wins"=>0, "losses"=>0];
     save_state($DATA_FILE, $state);
     send_json(["player_id" => $id], 201);
 }
 
+// POST /api/games
 if ($path === "/api/games" && $method === "POST") {
     $body = get_request_body();
     $size = (int)($body["grid_size"] ?? 10);
-    if ($size < 5 || $size > 15) send_json(["error" => "invalid size"], 400);
     $id = (int)$state["nextGameId"]++;
-    $state["games"][$id] = ["game_id"=>$id, "grid_size"=>$size, "status"=>"waiting", "active_players"=>0, "player_ids"=>[]];
+    $state["games"][$id] = [
+        "game_id" => $id, 
+        "grid_size" => $size, 
+        "status" => "waiting", 
+        "player_ids" => [], 
+        "ships" => [], 
+        "moves" => [], 
+        "current_turn_index" => 0
+    ];
     save_state($DATA_FILE, $state);
     send_json(["game_id" => $id], 201);
 }
 
-if (preg_match("#^/api/games/(\d+)$#", $path, $matches) && $method === "GET") {
-    $id = (int)$matches[1];
-    if (!isset($state["games"][$id])) send_json(["error" => "not found"], 404);
-    send_json($state["games"][$id], 200);
-}
-
-if (preg_match("#^/api/games/(\d+)/join$#", $path, $matches) && $method === "POST") {
+// POST /api/games/{id}/join
+if (preg_match("#^/api/games/(\d+)/join$#", $path, $matches)) {
     $gameId = (int)$matches[1];
     $body = get_request_body();
     $playerId = (int)($body["player_id"] ?? 0);
     if (!isset($state["games"][$gameId]) || !isset($state["players"][$playerId])) send_json(["error" => "not found"], 404);
     if (!in_array($playerId, $state["games"][$gameId]["player_ids"])) {
         $state["games"][$gameId]["player_ids"][] = $playerId;
-        $state["games"][$gameId]["active_players"] = count($state["games"][$gameId]["player_ids"]);
     }
     save_state($DATA_FILE, $state);
-    send_json(["status" => "joined", "game_id" => $gameId, "player_id" => $playerId], 200);
+    send_json(["status" => "joined", "game_id" => $gameId], 200);
 }
 
-// --- Test Mode Endpoints ---
-// POST /api/test/games/{id}/ships
-if (preg_match("#^/api/test/games/(\d+)/ships$#", $path, $matches) && $method === "POST") {
-    require_test_mode($TEST_PASSWORD);
+// POST /api/games/{id}/place
+if (preg_match("#^/api/games/(\d+)/place$#", $path, $matches)) {
     $gameId = (int)$matches[1];
     $body = get_request_body();
-    $playerId = (int)($body["playerId"] ?? $body["player_id"] ?? 0); // Handle both camelCase and snake_case
+    $playerId = (int)($body["player_id"] ?? 0);
+    
+    // Identity Enforcement
+    if (!isset($state["players"][$playerId]) || !in_array($playerId, $state["games"][$gameId]["player_ids"])) {
+        send_json(["error" => "Forbidden"], 403);
+    }
+    
+    // Exactly 3 single-cell ships required
+    if (count($body["ships"] ?? []) !== 3) send_json(["error" => "Exactly 3 ships required"], 400);
+    
+    $state["games"][$gameId]["ships"][$playerId] = $body["ships"];
+    
+    // If all players (min 2) have placed ships, set status to active
+    if (count($state["games"][$gameId]["ships"]) >= 2) {
+        $state["games"][$gameId]["status"] = "active";
+    }
+    
+    save_state($DATA_FILE, $state);
+    send_json(["status" => "placed"], 200);
+}
 
-    if (!isset($state["games"][$gameId])) send_json(["error" => "game not found"], 404);
+// POST /api/games/{id}/fire
+if (preg_match("#^/api/games/(\d+)/fire$#", $path, $matches)) {
+    $gameId = (int)$matches[1];
+    $body = get_request_body();
+    $playerId = (int)($body["player_id"] ?? 0);
+    $game = &$state["games"][$gameId];
 
-    // Deterministic placement logic
-    foreach (($body["ships"] ?? []) as $ship) {
-        $coords = $ship["coordinates"] ?? $ship["positions"] ?? [];
-        foreach ($coords as $pos) {
-            if (is_array($pos)) { $r = $pos[0]; $c = $pos[1]; }
-            else { $r = ord(strtoupper(substr($pos, 0, 1))) - ord('A'); $c = intval(substr($pos, 1)) - 1; }
-            if ($r >= 0 && $r < 10 && $c >= 0 && $c < 10) { $state["test"]["board"][$r][$c] = "S"; }
+    // Identity & Turn Validation
+    if (!isset($state["players"][$playerId]) || !in_array($playerId, $game["player_ids"])) send_json(["error" => "Forbidden"], 403);
+    if ($game["status"] !== "active") send_json(["error" => "Game not active"], 400);
+    
+    // Turn Enforcement
+    if ($game["player_ids"][$game["current_turn_index"]] !== $playerId) send_json(["error" => "Out of turn"], 403);
+
+    // Reject duplicate coordinates
+    foreach ($game["moves"] as $m) {
+        if ($m["player_id"] === $playerId && $m["row"] === $body["row"] && $m["col"] === $body["col"]) {
+            send_json(["error" => "Duplicate move"], 400);
         }
     }
-    save_state($DATA_FILE, $state);
+
+    // Process Shot Logic
+    $result = "miss";
+    foreach ($game["player_ids"] as $opponentId) {
+        if ($opponentId === $playerId) continue;
+        foreach ($game["ships"][$opponentId] as $ship) {
+            if ($ship["row"] === $body["row"] && $ship["col"] === $body["col"]) { $result = "hit"; break; }
+        }
+    }
+
+    // Move logging with timestamps
+    $game["moves"][] = [
+        "player_id" => $playerId, 
+        "row" => (int)$body["row"], 
+        "col" => (int)$body["col"], 
+        "result" => $result, 
+        "timestamp" => time()
+    ];
+
+    // Turn Rotation
+    $game["current_turn_index"] = ($game["current_turn_index"] + 1) % count($game["player_ids"]);
     
-    // FIX: Return BOTH game_id and player_id as integers
-    send_json([
-        "status" => "ships placed",
-        "game_id" => $gameId,
-        "player_id" => $playerId
-    ], 200);
+    save_state($DATA_FILE, $state);
+    send_json(["result" => $result, "next_player_id" => $game["player_ids"][$game["current_turn_index"]], "game_status" => $game["status"]], 200);
+}
+
+// GET /api/games/{id}/moves
+if (preg_match("#^/api/games/(\d+)/moves$#", $path, $matches)) {
+    $gameId = (int)$matches[1];
+    send_json($state["games"][$gameId]["moves"] ?? [], 200);
 }
 
 send_json(["error" => "endpoint not found"], 404);

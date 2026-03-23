@@ -175,5 +175,12 @@ if (preg_match("#^/api/test/games/(\d+)/restart$#", $path, $matches) && $method 
     send_json(["status" => "restarted"], 200);
 }
 
-// 404 Fallback
+
+if ($path === "/" || $path === "" || $path === "/index.php") {
+    // This serves your HTML directly when you visit the base URL
+    include_once("index.html"); 
+    exit;
+}
+
+// 404 Fallback for anything else
 send_json(["error" => "endpoint not found"], 404);

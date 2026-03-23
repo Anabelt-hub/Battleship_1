@@ -130,12 +130,13 @@ async function pollForActivation() {
 }
 
 function renderBattleBoards() {
-    // Render Enemy Board as clickable for firing
     cpuBoardEl.innerHTML = "";
     for (let r = 0; r < SIZE; r++) {
         for (let c = 0; c < SIZE; c++) {
             const cell = document.createElement("button");
             cell.className = "cell";
+            // Important: Add an ID so the Reveal/Scan button can find it
+            cell.id = `cpu-cell-${r}-${c}`; 
             cell.onclick = () => firePhasers(r, c, cell);
             cpuBoardEl.appendChild(cell);
         }

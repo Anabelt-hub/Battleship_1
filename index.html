@@ -111,26 +111,39 @@
 
     // Submit ships to Backend
     document.getElementById('btnConfirmPlacement').addEventListener('click', async () => {
-        const gameId = localStorage.getItem('currentGameId'); // Ensure you save this on btnNewGame
-        const playerId = localStorage.getItem('currentPlayerId');
+    // 1. Force a fresh retrieval of IDs from localStorage
+    const gId = localStorage.getItem('currentGameId');
+    const pId = localStorage.getItem('currentPlayerId');
 
-        const response = await fetch(`/api/games/${gameId}/place`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ player_id: parseInt(playerId), ships: selectedShips })
-        });
+    // 2. Defensive Check: If these are missing, the server will return "Not found"
+    if (!gId || !pId || gId === "null" || pId === "null") {
+        alert("Mission Data Lost: Please click 'New Mission' to re-establish a link to Starfleet Command.");
+        return;
+    }
 
-        if (response.ok) {
-            isPlacementMode = false;
-            document.getElementById('playerBoard').classList.remove('placement-active');
-            document.getElementById('status').innerText = "Fleet deployed. Engaging enemy...";
-            document.getElementById('btnConfirmPlacement').disabled = true;
-            // Start the actual game logic here
-        } else {
-            const err = await response.json();
-            alert("Placement Error: " + err.error);
-        }
+    // 3. Send the placement request
+    const response = await fetch(`/api/games/${gId}/place`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+            player_id: parseInt(pId), // IDs must be integers
+            ships: selectedShips      // Must be exactly 3
+        })
     });
+
+    if (response.ok) {
+        isPlacementMode = false;
+        document.getElementById('playerBoard').classList.remove('placement-active');
+        document.getElementById('status').innerText = "Fleet deployed. Synchronizing with tactical grid...";
+        document.getElementById('btnConfirmPlacement').disabled = true;
+        
+        // 4. Start polling the server to see when the game status becomes 'active'
+        pollForActivation(); 
+    } else {
+        const err = await response.json();
+        alert("Tactical Error: " + (err.error || "Server could not locate this mission."));
+    }
+});
 
     // Scan (Reveal) Button Logic
     document.getElementById('btnReveal').addEventListener('click', async () => {

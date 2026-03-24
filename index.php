@@ -118,13 +118,18 @@ if (preg_match("#^/api/games/(\d+)/place$#", $path, $matches)) {
         $used[] = $coord;
     }
 
-    // 2. IDENTITY CHECK (Return 403) — use loose comparison, IDs from JSON may be strings
+    // 2. IDENTITY CHECK — player must exist
+    if (!isset($state["players"][$playerId])) {
+        send_json(["error" => "Forbidden - player not found"], 403);
+    }
+
+    // Auto-join if not already in game
     $playerInGame = false;
     foreach ($game["player_ids"] as $pid) {
         if ((int)$pid === (int)$playerId) { $playerInGame = true; break; }
     }
     if (!$playerInGame) {
-        send_json(["error" => "Forbidden"], 403);
+        $game["player_ids"][] = $playerId;
     }
 
     // --- FIX: Force ships to be an object so JSON uses {} instead of [] ---
@@ -173,20 +178,19 @@ if (preg_match("#^/api/games/(\d+)/fire$#", $path, $matches)) {
     $c = (int)($body["col"] ?? 0);
     $result = "miss";
 
-    // Check against all opponents in the game
+    // Check against all opponents — ships keys may be int or string after JSON round-trip
+    $allShips = is_object($game["ships"]) ? (array)$game["ships"] : (array)($game["ships"] ?? []);
     foreach ($game["player_ids"] as $oppId) {
         if ((int)$oppId === (int)$playerId) continue;
 
-        // Use ->{$oppId} because ships is now a stdClass object
-        if (isset($game["ships"]->{$oppId})) {
-            $opponentShips = $game["ships"]->{$oppId};
-            
-            foreach ($opponentShips as $ship) {
-                // Force integers to ensure 0 === 0
-                if ((int)$ship['row'] === $r && (int)$ship['col'] === $c) {
-                    $result = "hit";
-                    break 2;
-                }
+        // Try both int and string key since JSON decode may store as string
+        $opponentShips = $allShips[$oppId] ?? $allShips[(string)$oppId] ?? null;
+        if ($opponentShips === null) continue;
+
+        foreach ($opponentShips as $ship) {
+            if ((int)$ship['row'] === $r && (int)$ship['col'] === $c) {
+                $result = "hit";
+                break 2;
             }
         }
     }

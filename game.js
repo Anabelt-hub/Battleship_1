@@ -261,3 +261,23 @@ async function cpuTurn() {
         gameStatus = "finished";
     }
 }
+
+document.getElementById('btnReveal').addEventListener('click', async () => {
+    const gId = localStorage.getItem('currentGameId');
+    const cpuId = localStorage.getItem('cpuPlayerId'); // Pull the actual Borg ID
+
+    // Use the Test Reveal endpoint
+    const response = await fetch(`/api/test/games/${gId}/board/${cpuId}`, {
+        headers: { 'X-Test-Password': 'clemson-test-2026' }
+    });
+
+    if (response.ok) {
+        const data = await response.json();
+        // data.ships will contain [{row:0, col:0}, {row:0, col:1}, {row:0, col:2}]
+        data.ships.forEach(s => {
+            const cell = document.getElementById(`cpu-cell-${s.row}-${s.col}`);
+            if (cell) cell.classList.add('ship-selected'); // Show them in green
+        });
+        setStatus("Long-range sensors bypass cloaking. Enemy positions revealed!");
+    }
+});

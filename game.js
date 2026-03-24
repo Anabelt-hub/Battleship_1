@@ -174,16 +174,21 @@ function renderBattleBoards() {
 
 async function firePhasers(r, c, cell) {
     if (gameStatus !== "active") return;
+
     const res = await fetch(`/api/games/${gameId}/fire`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ player_id: playerId, row: r, col: c })
     });
+
     const data = await res.json();
+    
     if (res.status === 403 && data.error === "Out of turn") {
         setStatus("Wait your turn, Captain! Recharging phasers...");
         return;
     }
+
+    // Process your hit/miss
     if (data.result === "hit") {
         cell.classList.add("hit");
         setStatus(`Direct hit at ${String.fromCharCode(65+c)}${r+1}!`);
@@ -191,12 +196,49 @@ async function firePhasers(r, c, cell) {
         cell.classList.add("miss");
         setStatus(`Phasers missed at ${String.fromCharCode(65+c)}${r+1}.`);
     }
+
     if (data.game_status === "finished") {
         setStatus("Mission accomplished. Enemy fleet neutralized!");
         gameStatus = "finished";
+    } else {
+        // --- NEW: Trigger CPU Turn ---
+        setTimeout(cpuTurn, 1000); 
     }
 }
 
 function setStatus(msg) {
     statusEl.textContent = msg;
+}
+
+async function cpuTurn() {
+    if (gameStatus !== "active") return;
+
+    const cpuId = parseInt(localStorage.getItem('cpuPlayerId'));
+    const randomRow = Math.floor(Math.random() * SIZE);
+    const randomCol = Math.floor(Math.random() * SIZE);
+
+    const res = await fetch(`/api/games/${gameId}/fire`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ player_id: cpuId, row: randomRow, col: randomCol })
+    });
+
+    const data = await res.json();
+
+    // Find the cell on YOUR board to show the CPU's shot
+    const playerCells = playerBoardEl.getElementsByClassName("cell");
+    const targetCell = playerCells[randomRow * SIZE + randomCol];
+
+    if (data.result === "hit") {
+        targetCell.classList.add("hit");
+        setStatus(`Borg Strike! We've been hit at ${String.fromCharCode(65+randomCol)}${randomRow+1}!`);
+    } else {
+        targetCell.classList.add("miss");
+        setStatus(`Borg phasers missed wide at ${String.fromCharCode(65+randomCol)}${randomRow+1}.`);
+    }
+
+    if (data.game_status === "finished") {
+        setStatus("The Federation fleet has been destroyed. Mission failed.");
+        gameStatus = "finished";
+    }
 }

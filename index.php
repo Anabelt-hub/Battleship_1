@@ -1,6 +1,6 @@
 <?php
 $DATA_FILE = __DIR__ . DIRECTORY_SEPARATOR . "phase1_state.json";
-$TEST_PASSWORD = "clemson-test-2026"; 
+$TEST_PASSWORD = "clemson-test-2026";
 
 function send_json($data, $status = 200) {
     http_response_code($status);
@@ -11,12 +11,30 @@ function send_json($data, $status = 200) {
 
 function load_state($file) {
     clearstatcache();
-    if (!file_exists($file)) return ["nextPlayerId"=>1, "nextGameId"=>1, "players"=>[], "games"=>[]];
-    return json_decode(file_get_contents($file), true) ?: ["nextPlayerId"=>1, "nextGameId"=>1, "players"=>[], "games"=>[]];
+    if (!file_exists($file)) return ["nextPlayerId"=>1,"nextGameId"=>1,"players"=>[],"games"=>[]];
+    return json_decode(file_get_contents($file), true) ?: ["nextPlayerId"=>1,"nextGameId"=>1,"players"=>[],"games"=>[]];
 }
 
 function save_state($file, $state) {
     file_put_contents($file, json_encode($state, JSON_PRETTY_PRINT), LOCK_EX);
+}
+
+function ships_object(&$game) {
+    if (!isset($game["ships"]) || is_array($game["ships"])) {
+        $game["ships"] = (object)($game["ships"] ?? []);
+    }
+}
+
+function get_ships_array($game) {
+    $s = $game["ships"] ?? [];
+    return is_object($s) ? (array)$s : (array)$s;
+}
+
+function check_test_auth($TEST_PASSWORD) {
+    $headers = array_change_key_case(getallheaders(), CASE_LOWER);
+    if (($headers["x-test-password"] ?? "") !== $TEST_PASSWORD) {
+        send_json(["error" => "Forbidden"], 403);
+    }
 }
 
 $path = parse_url($_SERVER["REQUEST_URI"], PHP_URL_PATH);
@@ -26,150 +44,206 @@ $state = load_state($DATA_FILE);
 
 if ($path === "/" || $path === "" || $path === "/index.php") { include_once("index.html"); exit; }
 
-// --- PRODUCTION ENDPOINTS ---
-
+// =====================================================================
+// POST /api/reset
+// =====================================================================
 if ($path === "/api/reset" && $method === "POST") {
-    $state = ["nextPlayerId"=>1, "nextGameId"=>1, "players"=>[], "games"=>[]];
+    $state = ["nextPlayerId"=>1,"nextGameId"=>1,"players"=>[],"games"=>[]];
     save_state($DATA_FILE, $state);
     send_json(["status" => "reset"]);
 }
 
+// =====================================================================
+// POST /api/players
+// Spec: client provides username, server generates player_id.
+// Supplying player_id in body must return 400.
+// Missing username must return 400.
+// =====================================================================
 if ($path === "/api/players" && $method === "POST") {
-    $body = json_decode(file_get_contents("php://input"), true);
+    $body = json_decode(file_get_contents("php://input"), true) ?? [];
+
+    // Reject client-supplied player_id (addendum requirement)
+    if (isset($body["player_id"])) {
+        send_json(["error" => "player_id must not be supplied by client"], 400);
+    }
+
     if (!isset($body["username"]) || trim($body["username"]) === "") {
         send_json(["error" => "username is required"], 400);
     }
+
     $id = (int)$state["nextPlayerId"]++;
     $state["players"][$id] = [
-        "player_id" => $id,
-        "username" => $body["username"],
+        "player_id"    => $id,
+        "username"     => $body["username"],
         "games_played" => 0,
-        "wins" => 0,
-        "losses" => 0,
-        "total_shots" => 0,
-        "total_hits" => 0,
-        "accuracy" => 0.0
+        "wins"         => 0,
+        "losses"       => 0,
+        "total_shots"  => 0,
+        "total_hits"   => 0,
+        "accuracy"     => 0.0
     ];
     save_state($DATA_FILE, $state);
     send_json(["player_id" => $id], 201);
 }
 
-if (preg_match("#^/api/players/(\d+)/stats$#", $path, $matches) && $method === "GET") {
-    $pId = (int)$matches[1];
+// =====================================================================
+// GET /api/players/{id}/stats
+// =====================================================================
+if (preg_match("#^/api/players/(\d+)/stats$#", $path, $m) && $method === "GET") {
+    $pId = (int)$m[1];
     if (!isset($state["players"][$pId])) send_json(["error" => "Player not found"], 404);
     $p = $state["players"][$pId];
     send_json([
         "games_played" => (int)($p["games_played"] ?? 0),
-        "wins"         => (int)($p["wins"] ?? 0),
-        "losses"       => (int)($p["losses"] ?? 0),
-        "total_shots"  => (int)($p["total_shots"] ?? 0),
-        "total_hits"   => (int)($p["total_hits"] ?? 0),
-        "accuracy"     => (float)($p["accuracy"] ?? 0.0)
+        "wins"         => (int)($p["wins"]         ?? 0),
+        "losses"       => (int)($p["losses"]       ?? 0),
+        "total_shots"  => (int)($p["total_shots"]  ?? 0),
+        "total_hits"   => (int)($p["total_hits"]   ?? 0),
+        "accuracy"     => (float)($p["accuracy"]   ?? 0.0)
     ]);
 }
 
+// =====================================================================
+// POST /api/games
+// =====================================================================
 if ($path === "/api/games" && $method === "POST") {
-    $body = json_decode(file_get_contents("php://input"), true);
+    $body = json_decode(file_get_contents("php://input"), true) ?? [];
     $gridSize = (int)($body["grid_size"] ?? 10);
     if ($gridSize < 5 || $gridSize > 15) send_json(["error" => "grid_size must be between 5 and 15"], 400);
     $id = (int)$state["nextGameId"]++;
     $state["games"][$id] = [
-        "game_id" => $id, "grid_size" => $gridSize,
-        "status" => "waiting", "player_ids" => [], 
-        "ships" => new stdClass(), // FORCE {} instead of []
-        "moves" => [], "current_turn_index" => 0
+        "game_id"           => $id,
+        "grid_size"         => $gridSize,
+        "status"            => "waiting",
+        "player_ids"        => [],
+        "ships_placed"      => [],   // tracks which player_ids have placed
+        "ships"             => new stdClass(),
+        "moves"             => [],
+        "current_turn_index"=> 0
     ];
     save_state($DATA_FILE, $state);
     send_json(["game_id" => $id], 201);
 }
 
-if (preg_match("#^/api/games/(\d+)/join$#", $path, $matches)) {
-    $gameId = (int)$matches[1];
-    $body = json_decode(file_get_contents("php://input"), true);
+// =====================================================================
+// POST /api/games/{id}/join
+// Addendum: joining same game twice → 400
+// =====================================================================
+if (preg_match("#^/api/games/(\d+)/join$#", $path, $m)) {
+    $gameId   = (int)$m[1];
+    $body     = json_decode(file_get_contents("php://input"), true) ?? [];
     $playerId = (int)($body["player_id"] ?? 0);
-    if (!isset($state["games"][$gameId])) send_json(["error" => "Not found"], 404);
-    if (!in_array($playerId, $state["games"][$gameId]["player_ids"])) {
-        $state["games"][$gameId]["player_ids"][] = $playerId;
-    }
-    save_state($DATA_FILE, $state);
-    send_json(["status" => "joined"]);
-}
 
-// CRITICAL FIX: POST /api/games/{id}/place 
-if (preg_match("#^/api/games/(\d+)/place$#", $path, $matches)) {
-    $gameId = (int)$matches[1];
-    $body = json_decode(file_get_contents("php://input"), true);
-    $playerId = (int)($body["player_id"] ?? 0);
-    $ships = $body["ships"] ?? [];
+    if (!isset($state["games"][$gameId])) send_json(["error" => "Game not found"], 404);
+    if (!isset($state["players"][$playerId])) send_json(["error" => "Player not found"], 404);
 
-    if (!isset($state["games"][$gameId])) send_json(["error" => "Not found"], 404);
     $game = &$state["games"][$gameId];
 
-    // 1. DATA VALIDATION (Return 400)
+    // Reject duplicate join
+    foreach ($game["player_ids"] as $pid) {
+        if ((int)$pid === $playerId) send_json(["error" => "Already joined this game"], 400);
+    }
+
+    $game["player_ids"][] = $playerId;
+    save_state($DATA_FILE, $state);
+    send_json(["status" => "joined"], 200);
+}
+
+// =====================================================================
+// POST /api/games/{id}/place
+// Cannot place twice for same player → 400
+// Player must exist → 403
+// =====================================================================
+if (preg_match("#^/api/games/(\d+)/place$#", $path, $m)) {
+    $gameId   = (int)$m[1];
+    $body     = json_decode(file_get_contents("php://input"), true) ?? [];
+    $playerId = (int)($body["player_id"] ?? 0);
+    $ships    = $body["ships"] ?? [];
+
+    if (!isset($state["games"][$gameId])) send_json(["error" => "Game not found"], 404);
+    $game = &$state["games"][$gameId];
+
+    // Validate ship count
     if (count($ships) !== 3) send_json(["error" => "Exactly 3 ships required"], 400);
-    
+
+    // Validate coordinates
     $used = [];
     foreach ($ships as $s) {
-        if ($s["row"] < 0 || $s["row"] >= $game["grid_size"] || $s["col"] < 0 || $s["col"] >= $game["grid_size"]) {
+        $r = $s["row"] ?? -1;
+        $c = $s["col"] ?? -1;
+        if ($r < 0 || $r >= $game["grid_size"] || $c < 0 || $c >= $game["grid_size"]) {
             send_json(["error" => "Out of bounds"], 400);
         }
-        $coord = $s["row"].",".$s["col"];
-        if (in_array($coord, $used)) send_json(["error" => "Overlap"], 400);
+        $coord = "$r,$c";
+        if (in_array($coord, $used)) send_json(["error" => "Overlapping ships"], 400);
         $used[] = $coord;
     }
 
-    // 2. IDENTITY CHECK — player must exist
+    // Player must exist
     if (!isset($state["players"][$playerId])) {
         send_json(["error" => "Forbidden - player not found"], 403);
     }
 
     // Auto-join if not already in game
-    $playerInGame = false;
+    $inGame = false;
     foreach ($game["player_ids"] as $pid) {
-        if ((int)$pid === (int)$playerId) { $playerInGame = true; break; }
+        if ((int)$pid === $playerId) { $inGame = true; break; }
     }
-    if (!$playerInGame) {
+    if (!$inGame) {
         $game["player_ids"][] = $playerId;
     }
 
-    // --- FIX: Force ships to be an object so JSON uses {} instead of [] ---
-    if (!isset($game["ships"]) || is_array($game["ships"])) {
-        $game["ships"] = (object)$game["ships"];
+    // Cannot place twice (spec: "Cannot place twice")
+    $alreadyPlaced = $game["ships_placed"] ?? [];
+    foreach ($alreadyPlaced as $pid) {
+        if ((int)$pid === $playerId) send_json(["error" => "Ships already placed"], 400);
     }
 
-    // Assign the ships using object property syntax
+    ships_object($game);
     $game["ships"]->{$playerId} = $ships;
+    $game["ships_placed"][] = $playerId;
 
-    // --- FIX: Cast back to array only for the count check ---
-    if (count((array)$game["ships"]) >= 2) {
+    // Activate when all joined players have placed
+    if (count((array)$game["ships"]) >= 2 &&
+        count((array)$game["ships"]) >= count($game["player_ids"])) {
         $game["status"] = "active";
     }
-    
+
     save_state($DATA_FILE, $state);
-    send_json(["status" => "placed"]);
+    send_json(["status" => "placed"], 200);
 }
 
-// 6. Fire Move
-if (preg_match("#^/api/games/(\d+)/fire$#", $path, $matches)) {
-    $gameId = (int)$matches[1];
-    $body = json_decode(file_get_contents("php://input"), true);
+// =====================================================================
+// POST /api/games/{id}/fire
+// Addendum: invalid player_id → 403, valid but wrong game → 403, out of turn → 403
+// =====================================================================
+if (preg_match("#^/api/games/(\d+)/fire$#", $path, $m)) {
+    $gameId   = (int)$m[1];
+    $body     = json_decode(file_get_contents("php://input"), true) ?? [];
     $playerId = (int)($body["player_id"] ?? 0);
 
     if (!isset($state["games"][$gameId])) send_json(["error" => "Game not found"], 404);
     $game = &$state["games"][$gameId];
 
+    // Invalid player_id entirely (doesn't exist in system)
+    if (!isset($state["players"][$playerId])) {
+        send_json(["error" => "Forbidden - invalid player"], 403);
+    }
+
     if ($game["status"] !== "active") {
-        send_json(["error" => "Firing is not allowed until all ships are placed"], 400);
+        send_json(["error" => "Game is not active"], 400);
     }
 
-    $playerInGame = false;
+    // Valid player but not in this game → 403
+    $inGame = false;
     foreach ($game["player_ids"] as $pid) {
-        if ((int)$pid === (int)$playerId) { $playerInGame = true; break; }
+        if ((int)$pid === $playerId) { $inGame = true; break; }
     }
-    if (!$playerInGame) {
-        send_json(["error" => "Forbidden - You are not in this game"], 403);
+    if (!$inGame) {
+        send_json(["error" => "Forbidden - not in this game"], 403);
     }
 
+    // Out of turn → 403
     if ((int)$game["player_ids"][$game["current_turn_index"]] !== $playerId) {
         send_json(["error" => "Out of turn"], 403);
     }
@@ -178,98 +252,136 @@ if (preg_match("#^/api/games/(\d+)/fire$#", $path, $matches)) {
     $c = (int)($body["col"] ?? 0);
     $result = "miss";
 
-    // Check against all opponents — ships keys may be int or string after JSON round-trip
-    $allShips = is_object($game["ships"]) ? (array)$game["ships"] : (array)($game["ships"] ?? []);
+    $allShips = get_ships_array($game);
     foreach ($game["player_ids"] as $oppId) {
-        if ((int)$oppId === (int)$playerId) continue;
-
-        // Try both int and string key since JSON decode may store as string
-        $opponentShips = $allShips[$oppId] ?? $allShips[(string)$oppId] ?? null;
-        if ($opponentShips === null) continue;
-
-        foreach ($opponentShips as $ship) {
-            if ((int)$ship['row'] === $r && (int)$ship['col'] === $c) {
+        if ((int)$oppId === $playerId) continue;
+        $oppShips = $allShips[$oppId] ?? $allShips[(string)$oppId] ?? null;
+        if ($oppShips === null) continue;
+        foreach ($oppShips as $ship) {
+            if ((int)$ship["row"] === $r && (int)$ship["col"] === $c) {
                 $result = "hit";
                 break 2;
             }
         }
     }
+
     $game["moves"][] = [
         "player_id" => $playerId,
-        "row" => $r, "col" => $c,
-        "result" => $result,
+        "row"       => $r,
+        "col"       => $c,
+        "result"    => $result,
         "timestamp" => time()
     ];
 
+    // Update stats
+    $state["players"][$playerId]["total_shots"] = ($state["players"][$playerId]["total_shots"] ?? 0) + 1;
+    if ($result === "hit") {
+        $state["players"][$playerId]["total_hits"] = ($state["players"][$playerId]["total_hits"] ?? 0) + 1;
+    }
+    $shots = $state["players"][$playerId]["total_shots"];
+    $hits  = $state["players"][$playerId]["total_hits"];
+    $state["players"][$playerId]["accuracy"] = $shots > 0 ? round($hits / $shots, 4) : 0.0;
+
     $game["current_turn_index"] = ($game["current_turn_index"] + 1) % count($game["player_ids"]);
+
     save_state($DATA_FILE, $state);
-    
+
     send_json([
-        "result" => $result,
+        "result"       => $result,
         "next_player_id" => (int)$game["player_ids"][$game["current_turn_index"]],
-        "game_status" => $game["status"]
+        "game_status"  => $game["status"]
     ], 200);
 }
 
-// --- GET Single Game Status ---
-if (preg_match("#^/api/games/(\d+)$#", $path, $matches)) {
-    $gameId = (int)$matches[1];
-    
-    // Check if the game exists in your state
-    if (!isset($state["games"][$gameId])) {
-        send_json(["error" => "Game not found"], 404);
-    }
-    
-    // Return the full game object so the frontend can check .status
-    send_json($state["games"][$gameId]);
+// =====================================================================
+// GET /api/games/{id}/moves
+// =====================================================================
+if (preg_match("#^/api/games/(\d+)/moves$#", $path, $m) && $method === "GET") {
+    $gameId = (int)$m[1];
+    if (!isset($state["games"][$gameId])) send_json(["error" => "Game not found"], 404);
+    send_json($state["games"][$gameId]["moves"] ?? []);
 }
 
-// --- TEST ENDPOINTS ---
-if (preg_match("#^/api/test/games/(\d+)/ships$#", $path, $matches)) {
-    $headers = array_change_key_case(getallheaders(), CASE_LOWER);
-    if (($headers["x-test-password"] ?? "") !== $TEST_PASSWORD) send_json(["error"=>"Forbidden"], 403);
-    
-    $body = json_decode(file_get_contents("php://input"), true);
-    $gId = (int)$matches[1];
-    $pId = (int)($body["player_id"] ?? 0);
+// =====================================================================
+// GET /api/games/{id}
+// =====================================================================
+if (preg_match("#^/api/games/(\d+)$#", $path, $m) && $method === "GET") {
+    $gameId = (int)$m[1];
+    if (!isset($state["games"][$gameId])) send_json(["error" => "Game not found"], 404);
+    $g = $state["games"][$gameId];
+    send_json([
+        "game_id"            => $g["game_id"],
+        "grid_size"          => $g["grid_size"],
+        "status"             => $g["status"],
+        "current_turn_index" => $g["current_turn_index"],
+        "player_ids"         => $g["player_ids"]
+    ]);
+}
 
-    if (!isset($state["games"][$gId])) send_json(["error" => "Not found"], 404);
-    
-    if (!isset($state["games"][$gId]["ships"]) || is_array($state["games"][$gId]["ships"])) {
-        $state["games"][$gId]["ships"] = (object)$state["games"][$gId]["ships"];
-    }
+// =====================================================================
+// TEST ENDPOINTS — all require X-Test-Password
+// =====================================================================
 
+// POST /api/test/games/{id}/ships
+if (preg_match("#^/api/test/games/(\d+)/ships$#", $path, $m)) {
+    check_test_auth($TEST_PASSWORD);
+    $body = json_decode(file_get_contents("php://input"), true) ?? [];
+    $gId  = (int)$m[1];
+    $pId  = (int)($body["player_id"] ?? 0);
+
+    if (!isset($state["games"][$gId])) send_json(["error" => "Game not found"], 404);
+
+    ships_object($state["games"][$gId]);
     $state["games"][$gId]["ships"]->{$pId} = $body["ships"];
+
+    // Track placement
+    $already = false;
+    foreach ($state["games"][$gId]["ships_placed"] ?? [] as $pid) {
+        if ((int)$pid === $pId) { $already = true; break; }
+    }
+    if (!$already) $state["games"][$gId]["ships_placed"][] = $pId;
 
     if (count((array)$state["games"][$gId]["ships"]) >= 2) {
         $state["games"][$gId]["status"] = "active";
     }
 
     save_state($DATA_FILE, $state);
-    send_json(["status" => "ships placed", "game_status" => $state["games"][$gId]["status"]]);
+    send_json(["status" => "ships placed", "game_status" => $state["games"][$gId]["status"]], 200);
 }
 
-// --- GET board reveal ---
-if (preg_match("#^/api/test/games/(\d+)/board/(\d+)$#", $path, $matches)) {
-    $headers = array_change_key_case(getallheaders(), CASE_LOWER);
-    if (($headers["x-test-password"] ?? "") !== $TEST_PASSWORD) send_json(["error" => "Forbidden"], 403);
-
-    $gId = (int)$matches[1];
-    $pId = (int)$matches[2];
+// GET /api/test/games/{id}/board/{player_id}
+if (preg_match("#^/api/test/games/(\d+)/board/(\d+)$#", $path, $m)) {
+    check_test_auth($TEST_PASSWORD);
+    $gId = (int)$m[1];
+    $pId = (int)$m[2];
 
     if (!isset($state["games"][$gId])) send_json(["error" => "Game not found"], 404);
 
-    $ships = $state["games"][$gId]["ships"];
-    $shipsArr = is_object($ships) ? (array)$ships : (is_array($ships) ? $ships : []);
-    $playerShips = $shipsArr[$pId] ?? $shipsArr[(string)$pId] ?? [];
+    $allShips   = get_ships_array($state["games"][$gId]);
+    $playerShips = $allShips[$pId] ?? $allShips[(string)$pId] ?? [];
 
     send_json(["player_id" => $pId, "ships" => $playerShips]);
 }
 
-// --- Catch-all: any /api/test/* path not matched above must still auth-check before 404 ---
+// POST /api/test/games/{id}/restart  (needed for Final submission)
+if (preg_match("#^/api/test/games/(\d+)/restart$#", $path, $m) && $method === "POST") {
+    check_test_auth($TEST_PASSWORD);
+    $gId = (int)$m[1];
+    if (!isset($state["games"][$gId])) send_json(["error" => "Game not found"], 404);
+
+    $state["games"][$gId]["ships"]        = new stdClass();
+    $state["games"][$gId]["ships_placed"] = [];
+    $state["games"][$gId]["moves"]        = [];
+    $state["games"][$gId]["status"]       = "waiting";
+    $state["games"][$gId]["current_turn_index"] = 0;
+
+    save_state($DATA_FILE, $state);
+    send_json(["status" => "restarted", "game_status" => "waiting"]);
+}
+
+// Catch-all for /api/test/* — auth before 404
 if (str_starts_with($path, "/api/test/")) {
-    $headers = array_change_key_case(getallheaders(), CASE_LOWER);
-    if (($headers["x-test-password"] ?? "") !== $TEST_PASSWORD) send_json(["error" => "Forbidden"], 403);
+    check_test_auth($TEST_PASSWORD);
     send_json(["error" => "Not found"], 404);
 }
 

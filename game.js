@@ -67,7 +67,7 @@ async function setupCPUOpponent(currentGId) {
     const cpuData = await cpuRes.json();
     const cpuId = cpuData.player_id;
 
-    // CRITICAL: Save this for the cpuTurn() function
+    // --- ADD THIS LINE SO cpuTurn() WORKS ---
     localStorage.setItem('cpuPlayerId', cpuId); 
 
     await fetch(`/api/games/${currentGId}/join`, {

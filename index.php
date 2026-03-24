@@ -138,17 +138,21 @@ if (preg_match("#^/api/games/(\d+)/fire$#", $path, $matches)) {
     $result = "miss";
 
     foreach ($game["player_ids"] as $oppId) {
-        if ($oppId == $playerId) continue;
-        if (isset($game["ships"]->{$oppId})) { // Fixed: using object access
-            foreach ($game["ships"]->{$oppId} as $ship) {
-                if ((int)$ship['row'] === $r && (int)$ship['col'] === $c) {
-                    $result = "hit";
-                    break 2;
-                }
+    if ((int)$oppId === (int)$playerId) continue;
+
+    // Check if the opponent has ships stored in the object
+    if (isset($game["ships"]->{$oppId})) {
+        $opponentShips = $game["ships"]->{$oppId};
+        
+        foreach ($opponentShips as $ship) {
+            // Ensure both sides are cast to integers for a perfect match
+            if ((int)$ship['row'] === $r && (int)$ship['col'] === $c) {
+                $result = "hit";
+                break 2;
             }
         }
     }
-
+}
     $game["moves"][] = [
         "player_id" => $playerId,
         "row" => $r, "col" => $c,

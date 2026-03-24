@@ -59,7 +59,6 @@ async function startNewMission() {
 }
 
 async function setupCPUOpponent(currentGId) {
-    // CPU Registers
     const cpuRes = await fetch('/api/players', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -68,14 +67,15 @@ async function setupCPUOpponent(currentGId) {
     const cpuData = await cpuRes.json();
     const cpuId = cpuData.player_id;
 
-    // CPU Joins
+    // CRITICAL: Save this for the cpuTurn() function
+    localStorage.setItem('cpuPlayerId', cpuId); 
+
     await fetch(`/api/games/${currentGId}/join`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ player_id: cpuId })
     });
 
-    // CPU Places Ships via TEST MODE
     await fetch(`/api/test/games/${currentGId}/ships`, {
         method: 'POST',
         headers: { 
@@ -207,7 +207,26 @@ async function firePhasers(r, c, cell) {
 }
 
 function setStatus(msg) {
-    statusEl.textContent = msg;
+    const logEl = document.getElementById("log");
+    if (!logEl) return;
+
+    // 1. Create a new log entry
+    const entry = document.createElement("div");
+    entry.className = "log-entry";
+    
+    // 2. Add a timestamp for that "Star Trek" feel
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    
+    // 3. Set the content
+    entry.innerHTML = `<span class="muted">[${timeStr}]</span> ${msg}`;
+    
+    // 4. Add to the log and auto-scroll to the bottom
+    logEl.appendChild(entry);
+    logEl.scrollTop = logEl.scrollHeight;
+
+    // Optional: Keep the status bar updated too if you want
+    if (statusEl) statusEl.textContent = msg;
 }
 
 async function cpuTurn() {

@@ -46,23 +46,26 @@ if ($path === "/" || $path === "" || $path === "/index.php") { include_once("ind
 
 // =====================================================================
 // POST /api/reset
+// Spec: clears game data. Players persist (they have lifetime stats).
 // =====================================================================
 if ($path === "/api/reset" && $method === "POST") {
-    $state = ["nextPlayerId"=>1,"nextGameId"=>1,"players"=>[],"games"=>[]];
+    // Preserve players — reset only resets games
+    $state["games"]    = [];
+    $state["nextGameId"] = 1;
     save_state($DATA_FILE, $state);
     send_json(["status" => "reset"]);
 }
 
 // =====================================================================
 // POST /api/players
-// Spec: client provides username, server generates player_id.
-// Supplying player_id in body must return 400.
-// Missing username must return 400.
+// Addendum: displayName (username) must be globally unique.
+// If same username submitted again, return existing player_id (identity reuse).
+// Client must NOT supply player_id — return 400 if they do.
 // =====================================================================
 if ($path === "/api/players" && $method === "POST") {
     $body = json_decode(file_get_contents("php://input"), true) ?? [];
 
-    // Reject client-supplied player_id (addendum requirement)
+    // Reject client-supplied player_id
     if (isset($body["player_id"])) {
         send_json(["error" => "player_id must not be supplied by client"], 400);
     }
@@ -71,10 +74,19 @@ if ($path === "/api/players" && $method === "POST") {
         send_json(["error" => "username is required"], 400);
     }
 
+    $username = trim($body["username"]);
+
+    // Enforce global uniqueness — return existing player if username already exists
+    foreach ($state["players"] as $existingId => $existingPlayer) {
+        if ($existingPlayer["username"] === $username) {
+            send_json(["player_id" => (int)$existingId], 200);
+        }
+    }
+
     $id = (int)$state["nextPlayerId"]++;
     $state["players"][$id] = [
         "player_id"    => $id,
-        "username"     => $body["username"],
+        "username"     => $username,
         "games_played" => 0,
         "wins"         => 0,
         "losses"       => 0,
@@ -105,21 +117,24 @@ if (preg_match("#^/api/players/(\d+)/stats$#", $path, $m) && $method === "GET") 
 
 // =====================================================================
 // POST /api/games
+// 5 <= grid_size <= 15
 // =====================================================================
 if ($path === "/api/games" && $method === "POST") {
-    $body = json_decode(file_get_contents("php://input"), true) ?? [];
+    $body     = json_decode(file_get_contents("php://input"), true) ?? [];
     $gridSize = (int)($body["grid_size"] ?? 10);
-    if ($gridSize < 5 || $gridSize > 15) send_json(["error" => "grid_size must be between 5 and 15"], 400);
+    if ($gridSize < 5 || $gridSize > 15) {
+        send_json(["error" => "grid_size must be between 5 and 15"], 400);
+    }
     $id = (int)$state["nextGameId"]++;
     $state["games"][$id] = [
-        "game_id"           => $id,
-        "grid_size"         => $gridSize,
-        "status"            => "waiting",
-        "player_ids"        => [],
-        "ships_placed"      => [],   // tracks which player_ids have placed
-        "ships"             => new stdClass(),
-        "moves"             => [],
-        "current_turn_index"=> 0
+        "game_id"            => $id,
+        "grid_size"          => $gridSize,
+        "status"             => "waiting",
+        "player_ids"         => [],
+        "ships_placed"       => [],
+        "ships"              => new stdClass(),
+        "moves"              => [],
+        "current_turn_index" => 0
     ];
     save_state($DATA_FILE, $state);
     send_json(["game_id" => $id], 201);
@@ -127,7 +142,10 @@ if ($path === "/api/games" && $method === "POST") {
 
 // =====================================================================
 // POST /api/games/{id}/join
-// Addendum: joining same game twice → 400
+// - Non-existent game → 404
+// - Non-existent player → 403 (addendum: invalid playerId → 403)
+// - Already in game → 400
+// - Game not waiting (active/finished) → 400
 // =====================================================================
 if (preg_match("#^/api/games/(\d+)/join$#", $path, $m)) {
     $gameId   = (int)$m[1];
@@ -135,11 +153,20 @@ if (preg_match("#^/api/games/(\d+)/join$#", $path, $m)) {
     $playerId = (int)($body["player_id"] ?? 0);
 
     if (!isset($state["games"][$gameId])) send_json(["error" => "Game not found"], 404);
-    if (!isset($state["players"][$playerId])) send_json(["error" => "Player not found"], 404);
+
+    // Invalid player → 403 (addendum: "Invalid playerId → 403")
+    if (!isset($state["players"][$playerId])) {
+        send_json(["error" => "Forbidden - invalid player"], 403);
+    }
 
     $game = &$state["games"][$gameId];
 
-    // Reject duplicate join
+    // Game must be in waiting state to join
+    if ($game["status"] !== "waiting") {
+        send_json(["error" => "Game is not open for joining"], 400);
+    }
+
+    // Reject duplicate join → 400
     foreach ($game["player_ids"] as $pid) {
         if ((int)$pid === $playerId) send_json(["error" => "Already joined this game"], 400);
     }
@@ -151,8 +178,12 @@ if (preg_match("#^/api/games/(\d+)/join$#", $path, $m)) {
 
 // =====================================================================
 // POST /api/games/{id}/place
-// Cannot place twice for same player → 400
-// Player must exist → 403
+// - Non-existent game → 404
+// - Wrong ship count → 400
+// - Out of bounds → 400
+// - Overlap → 400
+// - Non-existent player → 403
+// - Already placed → 400
 // =====================================================================
 if (preg_match("#^/api/games/(\d+)/place$#", $path, $m)) {
     $gameId   = (int)$m[1];
@@ -163,14 +194,16 @@ if (preg_match("#^/api/games/(\d+)/place$#", $path, $m)) {
     if (!isset($state["games"][$gameId])) send_json(["error" => "Game not found"], 404);
     $game = &$state["games"][$gameId];
 
-    // Validate ship count
-    if (count($ships) !== 3) send_json(["error" => "Exactly 3 ships required"], 400);
+    // Validate ship count first
+    if (!is_array($ships) || count($ships) !== 3) {
+        send_json(["error" => "Exactly 3 ships required"], 400);
+    }
 
-    // Validate coordinates
+    // Validate each ship coordinate
     $used = [];
     foreach ($ships as $s) {
-        $r = $s["row"] ?? -1;
-        $c = $s["col"] ?? -1;
+        $r = isset($s["row"]) ? (int)$s["row"] : -1;
+        $c = isset($s["col"]) ? (int)$s["col"] : -1;
         if ($r < 0 || $r >= $game["grid_size"] || $c < 0 || $c >= $game["grid_size"]) {
             send_json(["error" => "Out of bounds"], 400);
         }
@@ -179,12 +212,17 @@ if (preg_match("#^/api/games/(\d+)/place$#", $path, $m)) {
         $used[] = $coord;
     }
 
-    // Player must exist
+    // Player must exist → 403
     if (!isset($state["players"][$playerId])) {
         send_json(["error" => "Forbidden - player not found"], 403);
     }
 
-    // Auto-join if not already in game
+    // Cannot place twice → 400
+    foreach ($game["ships_placed"] ?? [] as $pid) {
+        if ((int)$pid === $playerId) send_json(["error" => "Ships already placed"], 400);
+    }
+
+    // Auto-join if not in game yet
     $inGame = false;
     foreach ($game["player_ids"] as $pid) {
         if ((int)$pid === $playerId) { $inGame = true; break; }
@@ -193,18 +231,12 @@ if (preg_match("#^/api/games/(\d+)/place$#", $path, $m)) {
         $game["player_ids"][] = $playerId;
     }
 
-    // Cannot place twice (spec: "Cannot place twice")
-    $alreadyPlaced = $game["ships_placed"] ?? [];
-    foreach ($alreadyPlaced as $pid) {
-        if ((int)$pid === $playerId) send_json(["error" => "Ships already placed"], 400);
-    }
-
     ships_object($game);
     $game["ships"]->{$playerId} = $ships;
     $game["ships_placed"][] = $playerId;
 
-    // Activate when all joined players have placed
-    if (count((array)$game["ships"]) >= 2 &&
+    // Activate when every joined player has placed
+    if (count($game["player_ids"]) >= 2 &&
         count((array)$game["ships"]) >= count($game["player_ids"])) {
         $game["status"] = "active";
     }
@@ -215,7 +247,12 @@ if (preg_match("#^/api/games/(\d+)/place$#", $path, $m)) {
 
 // =====================================================================
 // POST /api/games/{id}/fire
-// Addendum: invalid player_id → 403, valid but wrong game → 403, out of turn → 403
+// - Non-existent game → 404
+// - Invalid player → 403
+// - Game not active → 400
+// - Player not in game → 403
+// - Out of turn → 403
+// - Out of bounds fire coordinates → 400
 // =====================================================================
 if (preg_match("#^/api/games/(\d+)/fire$#", $path, $m)) {
     $gameId   = (int)$m[1];
@@ -225,16 +262,17 @@ if (preg_match("#^/api/games/(\d+)/fire$#", $path, $m)) {
     if (!isset($state["games"][$gameId])) send_json(["error" => "Game not found"], 404);
     $game = &$state["games"][$gameId];
 
-    // Invalid player_id entirely (doesn't exist in system)
+    // Invalid player entirely → 403
     if (!isset($state["players"][$playerId])) {
         send_json(["error" => "Forbidden - invalid player"], 403);
     }
 
+    // Game must be active
     if ($game["status"] !== "active") {
         send_json(["error" => "Game is not active"], 400);
     }
 
-    // Valid player but not in this game → 403
+    // Must be in this game → 403
     $inGame = false;
     foreach ($game["player_ids"] as $pid) {
         if ((int)$pid === $playerId) { $inGame = true; break; }
@@ -243,15 +281,20 @@ if (preg_match("#^/api/games/(\d+)/fire$#", $path, $m)) {
         send_json(["error" => "Forbidden - not in this game"], 403);
     }
 
-    // Out of turn → 403
+    // Must be your turn → 403
     if ((int)$game["player_ids"][$game["current_turn_index"]] !== $playerId) {
         send_json(["error" => "Out of turn"], 403);
     }
 
-    $r = (int)($body["row"] ?? 0);
-    $c = (int)($body["col"] ?? 0);
-    $result = "miss";
+    $r = (int)($body["row"] ?? -1);
+    $c = (int)($body["col"] ?? -1);
 
+    // Validate fire coordinates are in bounds
+    if ($r < 0 || $r >= $game["grid_size"] || $c < 0 || $c >= $game["grid_size"]) {
+        send_json(["error" => "Out of bounds"], 400);
+    }
+
+    $result = "miss";
     $allShips = get_ships_array($game);
     foreach ($game["player_ids"] as $oppId) {
         if ((int)$oppId === $playerId) continue;
@@ -273,13 +316,13 @@ if (preg_match("#^/api/games/(\d+)/fire$#", $path, $m)) {
         "timestamp" => time()
     ];
 
-    // Update stats
+    // Update player stats
     $state["players"][$playerId]["total_shots"] = ($state["players"][$playerId]["total_shots"] ?? 0) + 1;
     if ($result === "hit") {
         $state["players"][$playerId]["total_hits"] = ($state["players"][$playerId]["total_hits"] ?? 0) + 1;
     }
-    $shots = $state["players"][$playerId]["total_shots"];
-    $hits  = $state["players"][$playerId]["total_hits"];
+    $shots = (int)$state["players"][$playerId]["total_shots"];
+    $hits  = (int)$state["players"][$playerId]["total_hits"];
     $state["players"][$playerId]["accuracy"] = $shots > 0 ? round($hits / $shots, 4) : 0.0;
 
     $game["current_turn_index"] = ($game["current_turn_index"] + 1) % count($game["player_ids"]);
@@ -287,9 +330,9 @@ if (preg_match("#^/api/games/(\d+)/fire$#", $path, $m)) {
     save_state($DATA_FILE, $state);
 
     send_json([
-        "result"       => $result,
+        "result"         => $result,
         "next_player_id" => (int)$game["player_ids"][$game["current_turn_index"]],
-        "game_status"  => $game["status"]
+        "game_status"    => $game["status"]
     ], 200);
 }
 
@@ -310,16 +353,16 @@ if (preg_match("#^/api/games/(\d+)$#", $path, $m) && $method === "GET") {
     if (!isset($state["games"][$gameId])) send_json(["error" => "Game not found"], 404);
     $g = $state["games"][$gameId];
     send_json([
-        "game_id"            => $g["game_id"],
-        "grid_size"          => $g["grid_size"],
+        "game_id"            => (int)$g["game_id"],
+        "grid_size"          => (int)$g["grid_size"],
         "status"             => $g["status"],
-        "current_turn_index" => $g["current_turn_index"],
-        "player_ids"         => $g["player_ids"]
+        "current_turn_index" => (int)$g["current_turn_index"],
+        "player_ids"         => array_values(array_map("intval", $g["player_ids"]))
     ]);
 }
 
 // =====================================================================
-// TEST ENDPOINTS — all require X-Test-Password
+// TEST ENDPOINTS
 // =====================================================================
 
 // POST /api/test/games/{id}/ships
@@ -334,13 +377,14 @@ if (preg_match("#^/api/test/games/(\d+)/ships$#", $path, $m)) {
     ships_object($state["games"][$gId]);
     $state["games"][$gId]["ships"]->{$pId} = $body["ships"];
 
-    // Track placement
+    // Track placed (idempotent)
     $already = false;
     foreach ($state["games"][$gId]["ships_placed"] ?? [] as $pid) {
         if ((int)$pid === $pId) { $already = true; break; }
     }
     if (!$already) $state["games"][$gId]["ships_placed"][] = $pId;
 
+    // Activate if 2+ players have placed
     if (count((array)$state["games"][$gId]["ships"]) >= 2) {
         $state["games"][$gId]["status"] = "active";
     }
@@ -357,29 +401,29 @@ if (preg_match("#^/api/test/games/(\d+)/board/(\d+)$#", $path, $m)) {
 
     if (!isset($state["games"][$gId])) send_json(["error" => "Game not found"], 404);
 
-    $allShips   = get_ships_array($state["games"][$gId]);
+    $allShips    = get_ships_array($state["games"][$gId]);
     $playerShips = $allShips[$pId] ?? $allShips[(string)$pId] ?? [];
 
     send_json(["player_id" => $pId, "ships" => $playerShips]);
 }
 
-// POST /api/test/games/{id}/restart  (needed for Final submission)
+// POST /api/test/games/{id}/restart
 if (preg_match("#^/api/test/games/(\d+)/restart$#", $path, $m) && $method === "POST") {
     check_test_auth($TEST_PASSWORD);
     $gId = (int)$m[1];
     if (!isset($state["games"][$gId])) send_json(["error" => "Game not found"], 404);
 
-    $state["games"][$gId]["ships"]        = new stdClass();
-    $state["games"][$gId]["ships_placed"] = [];
-    $state["games"][$gId]["moves"]        = [];
-    $state["games"][$gId]["status"]       = "waiting";
-    $state["games"][$gId]["current_turn_index"] = 0;
+    $state["games"][$gId]["ships"]               = new stdClass();
+    $state["games"][$gId]["ships_placed"]        = [];
+    $state["games"][$gId]["moves"]               = [];
+    $state["games"][$gId]["status"]              = "waiting";
+    $state["games"][$gId]["current_turn_index"]  = 0;
 
     save_state($DATA_FILE, $state);
     send_json(["status" => "restarted", "game_status" => "waiting"]);
 }
 
-// Catch-all for /api/test/* — auth before 404
+// Catch-all: auth check before 404 for all /api/test/* paths
 if (str_starts_with($path, "/api/test/")) {
     check_test_auth($TEST_PASSWORD);
     send_json(["error" => "Not found"], 404);

@@ -1,13 +1,12 @@
 <?php
-// Database Credentials
-$host = 'dpg-d75b8eoule4c73cm3m30-a.virginia-postgres.render.com';
-$db   = 'battleship_07ba';
-$user = 'gabriellaborjas';
-$pass = 'ZcGSiHgihxt9D8RUOOzaiSrrB1nzOPxl';
-$port = "5432";
-$TEST_PASSWORD = "clemson-test-2026";
+// index.php
+$host = getenv('DB_HOST');
+$db   = getenv('DB_NAME');
+$user = getenv('DB_USER');
+$pass = getenv('DB_PASS');
 
-$dsn = "pgsql:host=$host;port=$port;dbname=$db;sslmode=require";
+// The dsn now uses the variables you just set
+$dsn = "pgsql:host=$host;port=5432;dbname=$db;sslmode=require";
 
 try {
     $pdo = new PDO($dsn, $user, $pass, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);

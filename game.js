@@ -1,283 +1,229 @@
-const SIZE = 10;
-const MAX_PLACEMENT_SHIPS = 3;
+<?php
+// 1. DATABASE CONNECTION
+$host = getenv('DB_HOST');
+$db   = getenv('DB_NAME');
+$user = getenv('DB_USER');
+$pass = getenv('DB_PASS');
+$port = getenv('DB_PORT') ?: "5432";
+$TEST_PASSWORD = "clemson-test-2026";
 
-let gameId = null;
-let playerId = null;
-let isPlacementMode = false;
-let selectedShips = []; 
-let gameStatus = "waiting";
+$dsn = "pgsql:host=$host;port=$port;dbname=$db;sslmode=require";
 
-const statusEl = document.getElementById("status");
-const playerBoardEl = document.getElementById("playerBoard");
-const cpuBoardEl = document.getElementById("cpuBoard");
-const btnNewGame = document.getElementById("btnNewGame");
-const btnConfirmPlacement = document.getElementById("btnConfirmPlacement");
-
-btnNewGame.addEventListener("click", startNewMission);
-
-if (btnConfirmPlacement) {
-    btnConfirmPlacement.addEventListener("click", submitPlacement);
+try {
+    $pdo = new PDO($dsn, $user, $pass, [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC
+    ]);
+} catch (PDOException $e) {
+    send_json(["error" => "Database connection failed"], 500);
 }
 
-// Helper to generate 3 random, connected coordinates
-function generateRandomShips() {
-    const vertical = Math.random() > 0.5;
-    const startRow = Math.floor(Math.random() * (vertical ? SIZE - 3 : SIZE));
-    const startCol = Math.floor(Math.random() * (vertical ? SIZE : SIZE - 3));
+// 2. HELPER FUNCTIONS
+function send_json($data, $status = 200) {
+    http_response_code($status);
+    header("Content-Type: application/json");
+    echo json_encode($data);
+    exit;
+}
 
-    if (vertical) {
-        return [
-            {row: startRow, col: startCol},
-            {row: startRow + 1, col: startCol},
-            {row: startRow + 2, col: startCol}
-        ];
+function check_test_auth($TEST_PASSWORD) {
+    $headers = array_change_key_case(getallheaders(), CASE_LOWER);
+    if (($headers["x-test-password"] ?? "") !== $TEST_PASSWORD) {
+        send_json(["error" => "Forbidden"], 403);
+    }
+}
+
+// 3. ROUTING SETUP
+$path = parse_url($_SERVER["REQUEST_URI"], PHP_URL_PATH);
+$path = str_replace("/index.php", "", $path);
+$method = $_SERVER["REQUEST_METHOD"];
+
+if ($path === "/" || $path === "" || $path === "/index.php") { include_once("index.html"); exit; }
+
+// --- 4. PRODUCTION ENDPOINTS ---
+
+// POST /api/reset
+if ($path === "/api/reset" && $method === "POST") {
+    $pdo->exec("TRUNCATE games, game_players, ships, moves RESTART IDENTITY CASCADE");
+    send_json(["status" => "reset"]);
+}
+
+// POST /api/players
+if ($path === "/api/players" && $method === "POST") {
+    $body = json_decode(file_get_contents("php://input"), true) ?? [];
+    if (isset($body["player_id"])) send_json(["error" => "player_id must not be supplied by client"], 400);
+    $username = trim($body["username"] ?? "");
+    if ($username === "") send_json(["error" => "username is required"], 400);
+
+    $stmt = $pdo->prepare("SELECT player_id FROM players WHERE username = ?");
+    $stmt->execute([$username]);
+    $existing = $stmt->fetch();
+
+    if ($existing) {
+        send_json(["player_id" => (int)$existing["player_id"]], 200);
     } else {
-        return [
-            {row: startRow, col: startCol},
-            {row: startRow, col: startCol + 1},
-            {row: startRow, col: startCol + 2}
-        ];
+        $stmt = $pdo->prepare("INSERT INTO players (username) VALUES (?) RETURNING player_id");
+        $stmt->execute([$username]);
+        send_json(["player_id" => (int)$stmt->fetch()["player_id"]], 201);
     }
 }
 
-async function startNewMission() {
-    const pRes = await fetch('/api/players', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: "Captain Gabbie" })
-    });
-    const pData = await pRes.json();
-    playerId = pData.player_id;
-
-    const gRes = await fetch('/api/games', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ grid_size: 10 })
-    });
-    const gData = await gRes.json();
-    gameId = gData.game_id;
-
-    localStorage.setItem('currentPlayerId', playerId);
-    localStorage.setItem('currentGameId', gameId);
-
-    await fetch(`/api/games/${gameId}/join`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ player_id: playerId })
-    });
-
-    await setupCPUOpponent(gameId); 
-
-    isPlacementMode = true;
-    selectedShips = [];
-    gameStatus = "waiting";
-    setStatus("Placement Mode: Select 3 sectors, then click Confirm.");
-    renderPlacementBoard();
-}
-
-async function setupCPUOpponent(currentGId) {
-    const cpuRes = await fetch('/api/players', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: "Borg Cube" })
-    });
-    const cpuData = await cpuRes.json();
-    const cpuId = cpuData.player_id;
-
-    localStorage.setItem('cpuPlayerId', cpuId); 
-
-    await fetch(`/api/games/${currentGId}/join`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ player_id: cpuId })
-    });
-
-    // Inside setupCPUOpponent
-const randomShips = generateRandomShips(); // This creates the 3 random spots
-
-await fetch(`/api/test/games/${currentGId}/ships`, {
-    method: 'POST',
-    headers: { 
-        'Content-Type': 'application/json',
-        'X-Test-Password': 'clemson-test-2026' 
-    },
-    body: JSON.stringify({ 
-        player_id: cpuId, 
-        ships: randomShips // Ensure this is NOT hardcoded to [{row:0, col:0}...]
-    })
-});
-}
-
-async function submitPlacement() {
-    const currentGId = localStorage.getItem('currentGameId');
-    const currentPId = localStorage.getItem('currentPlayerId');
-
-    if (!currentGId || !currentPId) return alert("Mission Data Error.");
-    if (selectedShips.length !== 3) return alert("Select exactly 3 sectors.");
-
-    const res = await fetch(`/api/games/${currentGId}/place`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-            player_id: parseInt(currentPId), 
-            ships: selectedShips 
-        })
-    });
-
-    if (res.ok) {
-        isPlacementMode = false;
-        if (btnConfirmPlacement) btnConfirmPlacement.disabled = true;
-        setStatus("Fleet deployed. Battle stations!");
-        pollForActivation();
-    } else {
-        const err = await res.json();
-        alert("Placement Error: " + err.error);
-    }
-}
-
-async function pollForActivation() {
-    const res = await fetch(`/api/games/${gameId}`);
-    const data = await res.json();
-
-    if (data.status === "active") {
-        gameStatus = "active";
-        setStatus("Sensors Active. Enemy fleet detected. Fire when ready!");
-        renderBattleBoards();
-    } else {
-        setTimeout(pollForActivation, 2000);
-    }
-}
-
-function renderPlacementBoard() {
-    playerBoardEl.innerHTML = "";
-    cpuBoardEl.innerHTML = ""; 
-    for (let r = 0; r < SIZE; r++) {
-        for (let c = 0; c < SIZE; c++) {
-            const cell = document.createElement("button");
-            cell.className = "cell";
-            cell.onclick = () => handlePlacementClick(r, c, cell);
-            playerBoardEl.appendChild(cell);
-        }
-    }
-}
-
-function handlePlacementClick(r, c, cell) {
-    if (!isPlacementMode) return;
-    const index = selectedShips.findIndex(s => s.row === r && s.col === c);
-    if (index > -1) {
-        selectedShips.splice(index, 1);
-        cell.classList.remove("ship-selected");
-    } else if (selectedShips.length < MAX_PLACEMENT_SHIPS) {
-        selectedShips.push({ row: r, col: c });
-        cell.classList.add("ship-selected");
-    }
-    if (btnConfirmPlacement) {
-        btnConfirmPlacement.disabled = (selectedShips.length !== MAX_PLACEMENT_SHIPS);
-    }
-}
-
-function renderBattleBoards() {
-    cpuBoardEl.innerHTML = "";
-    for (let r = 0; r < SIZE; r++) {
-        for (let c = 0; c < SIZE; c++) {
-            const cell = document.createElement("button");
-            cell.className = "cell";
-            cell.id = `cpu-cell-${r}-${c}`; 
-            cell.onclick = () => firePhasers(r, c, cell);
-            cpuBoardEl.appendChild(cell);
-        }
-    }
-}
-
-async function firePhasers(r, c, cell) {
-    if (gameStatus !== "active") return;
-
-    const res = await fetch(`/api/games/${gameId}/fire`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ player_id: playerId, row: r, col: c })
-    });
-
-    const data = await res.json();
+// GET /api/players/{id}/stats
+if (preg_match("#^/api/players/(\d+)/stats/?$#", $path, $m)) {
+    $stmt = $pdo->prepare("SELECT * FROM players WHERE player_id = ?");
+    $stmt->execute([(int)$m[1]]);
+    $p = $stmt->fetch();
+    if (!$p) send_json(["error" => "Player not found"], 404);
     
-    if (data.result === "hit") {
-        cell.classList.add("hit");
-        setStatus(`Direct hit at ${String.fromCharCode(65+c)}${r+1}!`);
-    } else {
-        cell.classList.add("miss");
-        setStatus(`Phasers missed at ${String.fromCharCode(65+c)}${r+1}.`);
-    }
+    $shots = (int)$p["total_shots"];
+    $hits = (int)$p["total_hits"];
+    send_json([
+        "wins" => (int)$p["wins"],
+        "losses" => (int)$p["losses"],
+        "total_shots" => $shots,
+        "total_hits" => $hits,
+        "accuracy" => $shots > 0 ? round($hits / $shots, 3) : 0.0
+    ]);
+}
 
-    // --- VICTORY ALERT ---
-    if (data.game_status === "finished") {
-        gameStatus = "finished";
-        setStatus("MISSION ACCOMPLISHED: Enemy fleet neutralized!");
-        setTimeout(() => alert("🎉 VICTORY! You have defeated the Borg Cube."), 500);
-    } else {
-        setTimeout(cpuTurn, 1000); 
+// POST /api/games
+if ($path === "/api/games" && $method === "POST") {
+    $body = json_decode(file_get_contents("php://input"), true) ?? [];
+    $gridSize = (int)($body["grid_size"] ?? 10);
+    $maxPlayers = (int)($body["max_players"] ?? 2);
+    if ($gridSize < 5 || $gridSize > 15) send_json(["error" => "Invalid grid size"], 400);
+    
+    $stmt = $pdo->prepare("INSERT INTO games (grid_size, max_players) VALUES (?, ?) RETURNING game_id");
+    $stmt->execute([$gridSize, $maxPlayers]);
+    send_json(["game_id" => (int)$stmt->fetch()["game_id"]], 201);
+}
+
+// GET /api/games/{id}
+if (preg_match("#^/api/games/(\d+)/?$#", $path, $m) && $method === "GET") {
+    $stmt = $pdo->prepare("SELECT game_id, grid_size, status FROM games WHERE game_id = ?");
+    $stmt->execute([(int)$m[1]]);
+    $game = $stmt->fetch();
+    if (!$game) send_json(["error" => "Game not found"], 404);
+    $game["game_id"] = (int)$game["game_id"];
+    $game["current_turn_index"] = 0; 
+    $game["active_players"] = 2; 
+    send_json($game);
+}
+
+// POST /api/games/{id}/join
+if (preg_match("#^/api/games/(\d+)/join/?$#", $path, $m)) {
+    $gameId = (int)$m[1];
+    $body = json_decode(file_get_contents("php://input"), true) ?? [];
+    $playerId = (int)($body["player_id"] ?? 0);
+    try {
+        $stmt = $pdo->prepare("INSERT INTO game_players (game_id, player_id) VALUES (?, ?)");
+        $stmt->execute([$gameId, $playerId]);
+        send_json(["status" => "joined"]);
+    } catch (PDOException $e) {
+        if ($e->getCode() == '23505') send_json(["error" => "Already joined"], 400);
+        send_json(["error" => "Join failed"], 400);
     }
 }
 
-async function cpuTurn() {
-    if (gameStatus !== "active") return;
-
-    const cpuId = parseInt(localStorage.getItem('cpuPlayerId'));
-    const randomRow = Math.floor(Math.random() * SIZE);
-    const randomCol = Math.floor(Math.random() * SIZE);
-
-    const res = await fetch(`/api/games/${gameId}/fire`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ player_id: cpuId, row: randomRow, col: randomCol })
-    });
-
-    const data = await res.json();
-    const playerCells = playerBoardEl.getElementsByClassName("cell");
-    const targetCell = playerCells[randomRow * SIZE + randomCol];
-
-    if (data.result === "hit") {
-        targetCell.classList.add("hit");
-        setStatus(`Borg Strike! We've been hit at ${String.fromCharCode(65+randomCol)}${randomRow+1}!`);
-    } else {
-        targetCell.classList.add("miss");
-        setStatus(`Borg phasers missed wide at ${String.fromCharCode(65+randomCol)}${randomRow+1}.`);
+// POST /api/games/{id}/place
+if (preg_match("#^/api/games/(\d+)/place/?$#", $path, $m)) {
+    $gameId = (int)$m[1];
+    $body = json_decode(file_get_contents("php://input"), true) ?? [];
+    $playerId = (int)($body["player_id"] ?? 0);
+    $ships = $body["ships"] ?? [];
+    if (count($ships) !== 3) send_json(["error" => "Exactly 3 ships required"], 400);
+    
+    $pdo->beginTransaction();
+    foreach ($ships as $s) {
+        $pdo->prepare("INSERT INTO ships (game_id, player_id, row, col) VALUES (?, ?, ?, ?)")
+            ->execute([$gameId, $playerId, $s["row"], $s["col"]]);
     }
-
-    // --- DEFEAT ALERT ---
-    if (data.game_status === "finished") {
-        gameStatus = "finished";
-        setStatus("CRITICAL FAILURE: The Federation fleet has been destroyed.");
-        setTimeout(() => alert("💀 GAME OVER: The Borg Cube has won."), 500);
+    $stmt = $pdo->prepare("SELECT COUNT(DISTINCT player_id) as c FROM ships WHERE game_id = ?");
+    $stmt->execute([$gameId]);
+    if ($stmt->fetch()["c"] >= 2) {
+        $pdo->prepare("UPDATE games SET status = 'active' WHERE game_id = ?")->execute([$gameId]);
     }
+    $pdo->commit();
+    send_json(["status" => "placed"]);
 }
 
-function setStatus(msg) {
-    const logEl = document.getElementById("log");
-    const entry = document.createElement("div");
-    entry.className = "log-entry";
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    entry.innerHTML = `<span class="muted">[${timeStr}]</span> ${msg}`;
-    if (logEl) {
-        logEl.appendChild(entry);
-        logEl.scrollTop = logEl.scrollHeight;
+// POST /api/games/{id}/fire
+if (preg_match("#^/api/games/(\d+)/fire/?$#", $path, $m)) {
+    $gameId = (int)$m[1];
+    $body = json_decode(file_get_contents("php://input"), true) ?? [];
+    $playerId = (int)($body["player_id"] ?? 0);
+    $r = (int)($body["row"] ?? 0); $c = (int)($body["col"] ?? 0);
+
+    $stmt = $pdo->prepare("SELECT status FROM games WHERE game_id = ?");
+    $stmt->execute([$gameId]);
+    $game = $stmt->fetch();
+    if ($game["status"] === "finished") send_json(["error" => "Game over"], 409);
+    
+    $stmt = $pdo->prepare("SELECT 1 FROM game_players WHERE game_id = ? AND player_id = ?");
+    $stmt->execute([$gameId, $playerId]);
+    if (!$stmt->fetch()) send_json(["error" => "Forbidden"], 403);
+
+    $stmt = $pdo->prepare("SELECT * FROM ships WHERE game_id = ? AND player_id != ? AND row = ? AND col = ?");
+    $stmt->execute([$gameId, $playerId, $r, $c]);
+    $hit = $stmt->fetch();
+    $result = $hit ? "hit" : "miss";
+
+    $pdo->beginTransaction();
+    $pdo->prepare("INSERT INTO moves (game_id, player_id, row, col, result) VALUES (?, ?, ?, ?, ?)")
+        ->execute([$gameId, $playerId, $r, $c, $result]);
+    $pdo->prepare("UPDATE players SET total_shots = total_shots + 1, total_hits = total_hits + ? WHERE player_id = ?")
+        ->execute([($result === "hit" ? 1 : 0), $playerId]);
+    
+    // Updated Win logic: Only count ships that haven't been 'hit'
+    $stmt = $pdo->prepare("
+        SELECT COUNT(*) as rem 
+        FROM ships s 
+        LEFT JOIN moves m ON s.row = m.row 
+            AND s.col = m.col 
+            AND s.game_id = m.game_id 
+            AND m.result = 'hit'
+        WHERE s.game_id = ? 
+            AND s.player_id != ? 
+            AND m.move_id IS NULL
+    ");
+    $stmt->execute([$gameId, $playerId]);
+    
+    $gameStatus = "active"; $winnerId = null;
+    if ($stmt->fetch()["rem"] == 0 && $result === "hit") {
+        $gameStatus = "finished"; $winnerId = $playerId;
+        $pdo->prepare("UPDATE games SET status = 'finished', winner_id = ? WHERE game_id = ?")->execute([$playerId, $gameId]);
+        $pdo->prepare("UPDATE players SET wins = wins + 1 WHERE player_id = ?")->execute([$playerId]);
     }
-    if (statusEl) statusEl.textContent = msg;
+    $pdo->commit();
+    send_json(["result" => $result, "game_status" => $gameStatus, "winner_id" => $winnerId]);
 }
 
-document.getElementById('btnReveal').addEventListener('click', async () => {
-    const gId = localStorage.getItem('currentGameId');
-    const cpuId = localStorage.getItem('cpuPlayerId');
-    const response = await fetch(`/api/test/games/${gId}/board/${cpuId}`, {
-        headers: { 'X-Test-Password': 'clemson-test-2026' }
-    });
+// --- 5. TEST MODE ENDPOINTS ---
 
-    if (response.ok) {
-        const data = await response.json();
-        data.ships.forEach(s => {
-            const cell = document.getElementById(`cpu-cell-${s.row}-${s.col}`);
-            if (cell) cell.classList.add('ship-selected');
-        });
-        setStatus("Long-range sensors bypass cloaking. Enemy positions revealed!");
+if (preg_match("#^/api/test/games/(\d+)/restart/?$#", $path, $m)) {
+    check_test_auth($TEST_PASSWORD);
+    $pdo->prepare("DELETE FROM ships WHERE game_id = ?")->execute([(int)$m[1]]);
+    $pdo->prepare("DELETE FROM moves WHERE game_id = ?")->execute([(int)$m[1]]);
+    $pdo->prepare("UPDATE games SET status = 'waiting' WHERE game_id = ?")->execute([(int)$m[1]]);
+    send_json(["status" => "restarted"]);
+}
+
+if (preg_match("#^/api/test/games/(\d+)/ships/?$#", $path, $m) && $method === "POST") {
+    check_test_auth($TEST_PASSWORD);
+    $gameId = (int)$m[1];
+    $body = json_decode(file_get_contents("php://input"), true);
+    foreach ($body["ships"] as $s) {
+        $pdo->prepare("INSERT INTO ships (game_id, player_id, row, col) VALUES (?, ?, ?, ?)")
+            ->execute([$gameId, (int)$body["player_id"], $s["row"], $s["col"]]);
     }
-});
+    send_json(["status" => "ships placed"]);
+}
+
+if (preg_match("#^/api/test/games/(\d+)/board/(\d+)/?$#", $path, $m)) {
+    check_test_auth($TEST_PASSWORD);
+    $stmt = $pdo->prepare("SELECT row, col FROM ships WHERE game_id = ? AND player_id = ?");
+    $stmt->execute([(int)$m[1], (int)$m[2]]);
+    send_json(["ships" => $stmt->fetchAll()]);
+}
+
+send_json(["error" => "Not found"], 404);

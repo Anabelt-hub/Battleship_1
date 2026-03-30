@@ -138,7 +138,6 @@ if (preg_match("#^/api/games/(\d+)/place/?$#", $path, $m)) {
         $pdo->prepare("INSERT INTO ships (game_id, player_id, row, col) VALUES (?, ?, ?, ?)")
             ->execute([$gameId, $playerId, $s["row"], $s["col"]]);
     }
-    // Set active if 2+ players placed
     $stmt = $pdo->prepare("SELECT COUNT(DISTINCT player_id) as c FROM ships WHERE game_id = ?");
     $stmt->execute([$gameId]);
     if ($stmt->fetch()["c"] >= 2) {
@@ -175,18 +174,29 @@ if (preg_match("#^/api/games/(\d+)/fire/?$#", $path, $m)) {
     $pdo->prepare("UPDATE players SET total_shots = total_shots + 1, total_hits = total_hits + ? WHERE player_id = ?")
         ->execute([($result === "hit" ? 1 : 0), $playerId]);
     
-    // UPDATED WIN LOGIC in index.php
-$stmt = $pdo->prepare("
-    SELECT COUNT(*) as rem 
-    FROM ships s 
-    LEFT JOIN moves m ON s.row = m.row 
-        AND s.col = m.col 
-        AND s.game_id = m.game_id 
-        AND m.result = 'hit' -- ENSURE WE ONLY COUNT HITS
-    WHERE s.game_id = ? 
-        AND s.player_id != ? 
-        AND m.move_id IS NULL
-");
+    // Updated Win logic: Only count ships that haven't been 'hit'
+    $stmt = $pdo->prepare("
+        SELECT COUNT(*) as rem 
+        FROM ships s 
+        LEFT JOIN moves m ON s.row = m.row 
+            AND s.col = m.col 
+            AND s.game_id = m.game_id 
+            AND m.result = 'hit'
+        WHERE s.game_id = ? 
+            AND s.player_id != ? 
+            AND m.move_id IS NULL
+    ");
+    $stmt->execute([$gameId, $playerId]);
+    
+    $gameStatus = "active"; $winnerId = null;
+    if ($stmt->fetch()["rem"] == 0 && $result === "hit") {
+        $gameStatus = "finished"; $winnerId = $playerId;
+        $pdo->prepare("UPDATE games SET status = 'finished', winner_id = ? WHERE game_id = ?")->execute([$playerId, $gameId]);
+        $pdo->prepare("UPDATE players SET wins = wins + 1 WHERE player_id = ?")->execute([$playerId]);
+    }
+    $pdo->commit();
+    send_json(["result" => $result, "game_status" => $gameStatus, "winner_id" => $winnerId]);
+}
 
 // --- 5. TEST MODE ENDPOINTS ---
 

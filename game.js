@@ -19,8 +19,28 @@ if (btnConfirmPlacement) {
     btnConfirmPlacement.addEventListener("click", submitPlacement);
 }
 
+// Helper to generate 3 random, connected coordinates
+function generateRandomShips() {
+    const vertical = Math.random() > 0.5;
+    const startRow = Math.floor(Math.random() * (vertical ? SIZE - 3 : SIZE));
+    const startCol = Math.floor(Math.random() * (vertical ? SIZE : SIZE - 3));
+
+    if (vertical) {
+        return [
+            {row: startRow, col: startCol},
+            {row: startRow + 1, col: startCol},
+            {row: startRow + 2, col: startCol}
+        ];
+    } else {
+        return [
+            {row: startRow, col: startCol},
+            {row: startRow, col: startCol + 1},
+            {row: startRow, col: startCol + 2}
+        ];
+    }
+}
+
 async function startNewMission() {
-    // 1. Create Your Player
     const pRes = await fetch('/api/players', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -29,7 +49,6 @@ async function startNewMission() {
     const pData = await pRes.json();
     playerId = pData.player_id;
 
-    // 2. Create Game
     const gRes = await fetch('/api/games', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -41,14 +60,12 @@ async function startNewMission() {
     localStorage.setItem('currentPlayerId', playerId);
     localStorage.setItem('currentGameId', gameId);
 
-    // 3. YOU Join the mission
     await fetch(`/api/games/${gameId}/join`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ player_id: playerId })
     });
 
-    // 4. PRE-REQUISITE: Setup CPU so it is ready before you are
     await setupCPUOpponent(gameId); 
 
     isPlacementMode = true;
@@ -67,7 +84,6 @@ async function setupCPUOpponent(currentGId) {
     const cpuData = await cpuRes.json();
     const cpuId = cpuData.player_id;
 
-    // --- ADD THIS LINE SO cpuTurn() WORKS ---
     localStorage.setItem('cpuPlayerId', cpuId); 
 
     await fetch(`/api/games/${currentGId}/join`, {
@@ -75,6 +91,9 @@ async function setupCPUOpponent(currentGId) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ player_id: cpuId })
     });
+
+    // --- RANDOMIZED CPU PLACEMENT ---
+    const randomShips = generateRandomShips();
 
     await fetch(`/api/test/games/${currentGId}/ships`, {
         method: 'POST',
@@ -84,7 +103,7 @@ async function setupCPUOpponent(currentGId) {
         },
         body: JSON.stringify({ 
             player_id: cpuId, 
-            ships: [{row:0, col:0}, {row:0, col:1}, {row:0, col:2}] 
+            ships: randomShips 
         })
     });
 }
@@ -96,7 +115,6 @@ async function submitPlacement() {
     if (!currentGId || !currentPId) return alert("Mission Data Error.");
     if (selectedShips.length !== 3) return alert("Select exactly 3 sectors.");
 
-    // Submit YOUR ships
     const res = await fetch(`/api/games/${currentGId}/place`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -109,9 +127,8 @@ async function submitPlacement() {
     if (res.ok) {
         isPlacementMode = false;
         if (btnConfirmPlacement) btnConfirmPlacement.disabled = true;
-        
         setStatus("Fleet deployed. Battle stations!");
-        pollForActivation(); // Should trigger 'active' immediately now
+        pollForActivation();
     } else {
         const err = await res.json();
         alert("Placement Error: " + err.error);
@@ -183,12 +200,6 @@ async function firePhasers(r, c, cell) {
 
     const data = await res.json();
     
-    if (res.status === 403 && data.error === "Out of turn") {
-        setStatus("Wait your turn, Captain! Recharging phasers...");
-        return;
-    }
-
-    // Process your hit/miss
     if (data.result === "hit") {
         cell.classList.add("hit");
         setStatus(`Direct hit at ${String.fromCharCode(65+c)}${r+1}!`);
@@ -197,36 +208,14 @@ async function firePhasers(r, c, cell) {
         setStatus(`Phasers missed at ${String.fromCharCode(65+c)}${r+1}.`);
     }
 
+    // --- VICTORY ALERT ---
     if (data.game_status === "finished") {
-        setStatus("Mission accomplished. Enemy fleet neutralized!");
         gameStatus = "finished";
+        setStatus("MISSION ACCOMPLISHED: Enemy fleet neutralized!");
+        setTimeout(() => alert("🎉 VICTORY! You have defeated the Borg Cube."), 500);
     } else {
-        // --- NEW: Trigger CPU Turn ---
         setTimeout(cpuTurn, 1000); 
     }
-}
-
-function setStatus(msg) {
-    const logEl = document.getElementById("log");
-    if (!logEl) return;
-
-    // 1. Create a new log entry
-    const entry = document.createElement("div");
-    entry.className = "log-entry";
-    
-    // 2. Add a timestamp for that "Star Trek" feel
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    
-    // 3. Set the content
-    entry.innerHTML = `<span class="muted">[${timeStr}]</span> ${msg}`;
-    
-    // 4. Add to the log and auto-scroll to the bottom
-    logEl.appendChild(entry);
-    logEl.scrollTop = logEl.scrollHeight;
-
-    // Optional: Keep the status bar updated too if you want
-    if (statusEl) statusEl.textContent = msg;
 }
 
 async function cpuTurn() {
@@ -243,8 +232,6 @@ async function cpuTurn() {
     });
 
     const data = await res.json();
-
-    // Find the cell on YOUR board to show the CPU's shot
     const playerCells = playerBoardEl.getElementsByClassName("cell");
     const targetCell = playerCells[randomRow * SIZE + randomCol];
 
@@ -256,27 +243,40 @@ async function cpuTurn() {
         setStatus(`Borg phasers missed wide at ${String.fromCharCode(65+randomCol)}${randomRow+1}.`);
     }
 
+    // --- DEFEAT ALERT ---
     if (data.game_status === "finished") {
-        setStatus("The Federation fleet has been destroyed. Mission failed.");
         gameStatus = "finished";
+        setStatus("CRITICAL FAILURE: The Federation fleet has been destroyed.");
+        setTimeout(() => alert("💀 GAME OVER: The Borg Cube has won."), 500);
     }
+}
+
+function setStatus(msg) {
+    const logEl = document.getElementById("log");
+    const entry = document.createElement("div");
+    entry.className = "log-entry";
+    const now = new Date();
+    const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    entry.innerHTML = `<span class="muted">[${timeStr}]</span> ${msg}`;
+    if (logEl) {
+        logEl.appendChild(entry);
+        logEl.scrollTop = logEl.scrollHeight;
+    }
+    if (statusEl) statusEl.textContent = msg;
 }
 
 document.getElementById('btnReveal').addEventListener('click', async () => {
     const gId = localStorage.getItem('currentGameId');
-    const cpuId = localStorage.getItem('cpuPlayerId'); // Pull the actual Borg ID
-
-    // Use the Test Reveal endpoint
+    const cpuId = localStorage.getItem('cpuPlayerId');
     const response = await fetch(`/api/test/games/${gId}/board/${cpuId}`, {
         headers: { 'X-Test-Password': 'clemson-test-2026' }
     });
 
     if (response.ok) {
         const data = await response.json();
-        // data.ships will contain [{row:0, col:0}, {row:0, col:1}, {row:0, col:2}]
         data.ships.forEach(s => {
             const cell = document.getElementById(`cpu-cell-${s.row}-${s.col}`);
-            if (cell) cell.classList.add('ship-selected'); // Show them in green
+            if (cell) cell.classList.add('ship-selected');
         });
         setStatus("Long-range sensors bypass cloaking. Enemy positions revealed!");
     }

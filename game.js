@@ -92,20 +92,20 @@ async function setupCPUOpponent(currentGId) {
         body: JSON.stringify({ player_id: cpuId })
     });
 
-    // --- RANDOMIZED CPU PLACEMENT ---
-    const randomShips = generateRandomShips();
+    // Inside setupCPUOpponent
+const randomShips = generateRandomShips(); // This creates the 3 random spots
 
-    await fetch(`/api/test/games/${currentGId}/ships`, {
-        method: 'POST',
-        headers: { 
-            'Content-Type': 'application/json',
-            'X-Test-Password': 'clemson-test-2026' 
-        },
-        body: JSON.stringify({ 
-            player_id: cpuId, 
-            ships: randomShips 
-        })
-    });
+await fetch(`/api/test/games/${currentGId}/ships`, {
+    method: 'POST',
+    headers: { 
+        'Content-Type': 'application/json',
+        'X-Test-Password': 'clemson-test-2026' 
+    },
+    body: JSON.stringify({ 
+        player_id: cpuId, 
+        ships: randomShips // Ensure this is NOT hardcoded to [{row:0, col:0}...]
+    })
+});
 }
 
 async function submitPlacement() {

@@ -5,7 +5,8 @@ header("Access-Control-Allow-Methods: POST, GET, OPTIONS, DELETE");
 header("Access-Control-Allow-Headers: Content-Type, X-Test-Password");
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
-    exit; // Handle preflight request
+    http_response_code(200);
+    exit;
 }
 
 

@@ -1,4 +1,14 @@
 <?php
+
+header("Access-Control-Allow-Origin: *");
+header("Access-Control-Allow-Methods: POST, GET, OPTIONS, DELETE");
+header("Access-Control-Allow-Headers: Content-Type, X-Test-Password");
+
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    exit; // Handle preflight request
+}
+
+
 // 1. DATABASE CONNECTION
 $host = getenv('DB_HOST');
 $db   = getenv('DB_NAME');

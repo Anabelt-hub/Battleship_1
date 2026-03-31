@@ -146,35 +146,41 @@ if (preg_match("#^/api/games/(\d+)/join/?$#", $path, $m) && $method === "POST") 
     $gameId   = (int)$m[1];
     $body     = json_decode(file_get_contents("php://input"), true) ?? [];
     $playerId = (int)($body["player_id"] ?? 0);
-
     if ($playerId <= 0) send_json(["error" => "player_id required"], 400);
 
-    // 1. Fetch Game Metadata
-    $stmt = $pdo->prepare("SELECT max_players, status FROM games WHERE game_id = ?");
+    // Fetch game + current player count atomically
+    $stmt = $pdo->prepare("
+        SELECT g.max_players, g.status,
+               COUNT(gp.player_id) AS cnt
+        FROM games g
+        LEFT JOIN game_players gp ON gp.game_id = g.game_id
+        WHERE g.game_id = ?
+        GROUP BY g.max_players, g.status
+    ");
     $stmt->execute([$gameId]);
     $g = $stmt->fetch();
     if (!$g) send_json(["error" => "Game not found"], 404);
+
     if ($g["status"] === "finished") send_json(["error" => "Game over"], 409);
 
-    // 2. CAPACITY CHECK (MUST COME FIRST)
-    $stmt = $pdo->prepare("SELECT COUNT(*) AS cnt FROM game_players WHERE game_id = ?");
-    $stmt->execute([$gameId]);
-    $cnt = (int)$stmt->fetch()["cnt"];
-    $maxPlayers = (int)($g["max_players"] ?: 2);
+    // Clamp max_players: only trust values 2-10, else default to 2
+    $maxPlayers = (int)$g["max_players"];
+    if ($maxPlayers < 2 || $maxPlayers > 10) $maxPlayers = 2;
 
-    // Reject if full — this satisfies the 409 requirement
+    $cnt = (int)$g["cnt"];
+
+    // Capacity check
     if ($cnt >= $maxPlayers) {
-        send_json(["error" => "Game is full"], 409); 
+        send_json(["error" => "Game is full"], 409);
     }
 
-    // 3. DUPLICATE CHECK
+    // Duplicate check
     $stmt = $pdo->prepare("SELECT 1 FROM game_players WHERE game_id = ? AND player_id = ?");
     $stmt->execute([$gameId, $playerId]);
     if ($stmt->fetch()) {
         send_json(["error" => "Already joined"], 400);
     }
 
-    // 4. PERFORM JOIN
     $pdo->prepare("INSERT INTO game_players (game_id, player_id) VALUES (?, ?)")
         ->execute([$gameId, $playerId]);
 

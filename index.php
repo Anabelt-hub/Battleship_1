@@ -64,19 +64,12 @@ if ($path === "/api/players" && $method === "POST") {
     if (isset($body["player_id"])) send_json(["error" => "player_id must not be supplied by client"], 400);
     $username = trim($body["username"] ?? "");
     if ($username === "") send_json(["error" => "username is required"], 400);
-
-    $stmt = $pdo->prepare("SELECT player_id FROM players WHERE username = ?");
+    
+    $stmt = $pdo->prepare("INSERT INTO players (username) VALUES (?) RETURNING player_id");
     $stmt->execute([$username]);
-    $existing = $stmt->fetch();
-
-    if ($existing) {
-        send_json(["player_id" => (int)$existing["player_id"]], 200);
-    } else {
-        $stmt = $pdo->prepare("INSERT INTO players (username) VALUES (?) RETURNING player_id");
-        $stmt->execute([$username]);
-        send_json(["player_id" => (int)$stmt->fetch()["player_id"]], 201);
+    send_json(["player_id" => (int)$stmt->fetch()["player_id"]], 201);
+    
     }
-}
 
 // GET /api/players/{id}/stats
 if (preg_match("#^/api/players/(\d+)/stats/?$#", $path, $m)) {

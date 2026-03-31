@@ -53,8 +53,8 @@ if ($path === "/" || $path === "" || $path === "/index.php") { include_once("ind
 
 // POST /api/reset
 if ($path === "/api/reset" && $method === "POST") {
-    // Full system reset — wipe everything including players
-    $pdo->exec("TRUNCATE players, games, game_players, ships, moves RESTART IDENTITY CASCADE");
+    //Reset game state ONLY — keep players + stats
+    $pdo->exec("TRUNCATE games, game_players, ships, moves RESTART IDENTITY CASCADE");
     send_json(["status" => "reset"]);
 }
 

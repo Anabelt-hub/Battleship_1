@@ -53,8 +53,8 @@ if ($path === "/" || $path === "" || $path === "/index.php") { include_once("ind
 
 // POST /api/reset
 if ($path === "/api/reset" && $method === "POST") {
-   // Reset game state only — preserve player stats
-    $pdo->exec("TRUNCATE games, game_players, ships, moves RESTART IDENTITY CASCADE");
+    // Full system reset — wipe everything including players
+    $pdo->exec("TRUNCATE players, games, game_players, ships, moves RESTART IDENTITY CASCADE");
     send_json(["status" => "reset"]);
 }
 
@@ -64,12 +64,19 @@ if ($path === "/api/players" && $method === "POST") {
     if (isset($body["player_id"])) send_json(["error" => "player_id must not be supplied by client"], 400);
     $username = trim($body["username"] ?? "");
     if ($username === "") send_json(["error" => "username is required"], 400);
-    
-    $stmt = $pdo->prepare("INSERT INTO players (username) VALUES (?) RETURNING player_id");
+
+    $stmt = $pdo->prepare("SELECT player_id FROM players WHERE username = ?");
     $stmt->execute([$username]);
-    send_json(["player_id" => (int)$stmt->fetch()["player_id"]], 201);
-    
+    $existing = $stmt->fetch();
+
+    if ($existing) {
+        send_json(["player_id" => (int)$existing["player_id"]], 200);
+    } else {
+        $stmt = $pdo->prepare("INSERT INTO players (username) VALUES (?) RETURNING player_id");
+        $stmt->execute([$username]);
+        send_json(["player_id" => (int)$stmt->fetch()["player_id"]], 201);
     }
+}
 
 // GET /api/players/{id}/stats
 if (preg_match("#^/api/players/(\d+)/stats/?$#", $path, $m)) {
@@ -117,7 +124,7 @@ if (preg_match("#^/api/games/(\d+)/?$#", $path, $m) && $method === "GET") {
 }
 
 // POST /api/games/{id}/join
-if (preg_match("#^/api/games/(\d+)/join/?$#", $path, $m) && $method === "POST") {
+if (preg_match("#^/api/games/(\d+)/join/?$#", $path, $m)) {
     $gameId   = (int)$m[1];
     $body     = json_decode(file_get_contents("php://input"), true) ?? [];
     $playerId = (int)($body["player_id"] ?? 0);
@@ -200,45 +207,34 @@ if (preg_match("#^/api/games/(\d+)/fire/?$#", $path, $m)) {
     $pdo->prepare("UPDATE players SET total_shots = total_shots + 1, total_hits = total_hits + ? WHERE player_id = ?")
         ->execute([($result === "hit" ? 1 : 0), $playerId]);
     
-$stmt = $pdo->prepare("
-    SELECT COUNT(*) AS rem
-    FROM ships s
-    WHERE s.game_id = ?
-      AND s.player_id != ?
-      AND NOT EXISTS (
-          SELECT 1
-          FROM moves m
-          WHERE m.game_id = s.game_id
-            AND m.row = s.row
-            AND m.col = s.col
+    $stmt = $pdo->prepare("
+        SELECT COUNT(*) as rem 
+        FROM ships s 
+        LEFT JOIN moves m ON s.row = m.row 
+            AND s.col = m.col 
+            AND s.game_id = m.game_id 
             AND m.result = 'hit'
-      )
-");
-$stmt->execute([$gameId, $playerId]);
-$rem = (int)$stmt->fetch()["rem"];
+        WHERE s.game_id = ? 
+            AND s.player_id != ? 
+            AND m.move_id IS NULL
+    ");
+    $stmt->execute([$gameId, $playerId]);
+    
+    $gameStatus = "active"; $winnerId = null;
+    if ($stmt->fetch()["rem"] == 0 && $result === "hit") {
+        $gameStatus = "finished"; $winnerId = $playerId;
+        $pdo->prepare("UPDATE games SET status = 'finished', winner_id = ? WHERE game_id = ?")->execute([$playerId, $gameId]);
+        $pdo->prepare("UPDATE players SET wins = wins + 1 WHERE player_id = ?")->execute([$playerId]);
 
-$gameStatus = "active";
-$winnerId = null;
-
-if ($result === "hit" && $rem === 0) {
-    $gameStatus = "finished";
-    $winnerId = $playerId;
-
-    $pdo->prepare("UPDATE games SET status = 'finished', winner_id = ? WHERE game_id = ?")
-        ->execute([$playerId, $gameId]);
-
-    $pdo->prepare("UPDATE players SET wins = wins + 1 WHERE player_id = ?")
-        ->execute([$playerId]);
-
-    $pdo->prepare("
-        UPDATE players
-        SET losses = losses + 1
-        WHERE player_id IN (
-            SELECT player_id
-            FROM game_players
-            WHERE game_id = ? AND player_id != ?
-        )
-    ")->execute([$gameId, $playerId]);
+        // Record losses for all other players in the game
+        $pdo->prepare(
+            "UPDATE players SET losses = losses + 1
+             WHERE player_id IN (
+                 SELECT player_id FROM game_players WHERE game_id = ? AND player_id != ?
+                 UNION
+                 SELECT DISTINCT player_id FROM ships WHERE game_id = ? AND player_id != ?
+             )"
+        )->execute([$gameId, $playerId, $gameId, $playerId]);
     }
     $pdo->commit();
     send_json(["result" => $result, "game_status" => $gameStatus, "winner_id" => $winnerId]);

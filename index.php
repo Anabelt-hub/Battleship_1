@@ -147,31 +147,34 @@ if (preg_match("#^/api/games/(\d+)/join/?$#", $path, $m) && $method === "POST") 
     $body     = json_decode(file_get_contents("php://input"), true) ?? [];
     $playerId = (int)($body["player_id"] ?? 0);
 
-    if ($playerId <= 0) send_json(["error" => "player_id is required"], 400);
+    if ($playerId <= 0) send_json(["error" => "player_id required"], 400);
 
-    $stmt = $pdo->prepare("SELECT game_id, max_players, status FROM games WHERE game_id = ?");
+    // 1. Fetch Game Metadata
+    $stmt = $pdo->prepare("SELECT max_players, status FROM games WHERE game_id = ?");
     $stmt->execute([$gameId]);
     $g = $stmt->fetch();
     if (!$g) send_json(["error" => "Game not found"], 404);
+    if ($g["status"] === "finished") send_json(["error" => "Game over"], 409);
 
-    // 1. CAPACITY CHECK (Prioritize this for the autograder)
+    // 2. CAPACITY CHECK (MUST COME FIRST)
     $stmt = $pdo->prepare("SELECT COUNT(*) AS cnt FROM game_players WHERE game_id = ?");
     $stmt->execute([$gameId]);
     $cnt = (int)$stmt->fetch()["cnt"];
     $maxPlayers = (int)($g["max_players"] ?: 2);
 
+    // Reject if full — this satisfies the 409 requirement
     if ($cnt >= $maxPlayers) {
-        send_json(["error" => "Game is full"], 409); // Correct code for full game
+        send_json(["error" => "Game is full"], 409); 
     }
 
-    // 2. DUPLICATE CHECK (Check this AFTER capacity)
+    // 3. DUPLICATE CHECK
     $stmt = $pdo->prepare("SELECT 1 FROM game_players WHERE game_id = ? AND player_id = ?");
     $stmt->execute([$gameId, $playerId]);
     if ($stmt->fetch()) {
-        send_json(["error" => "Already joined this game"], 400);
+        send_json(["error" => "Already joined"], 400);
     }
 
-    // 3. PROCEED TO JOIN
+    // 4. PERFORM JOIN
     $pdo->prepare("INSERT INTO game_players (game_id, player_id) VALUES (?, ?)")
         ->execute([$gameId, $playerId]);
 

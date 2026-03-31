@@ -61,6 +61,44 @@ if ($path === "/api/reset" && $method === "POST") {
 // POST /api/players
 if ($path === "/api/players" && $method === "POST") {
     $body = json_decode(file_get_contents("php://input"), true) ?? [];
+
+    if (isset($body["player_id"])) {
+        send_json(["error" => "player_id must not be supplied by client"], 400);
+    }
+
+    $baseUsername = trim($body["username"] ?? "");
+    if ($baseUsername === "") {
+        $baseUsername = "player_" . bin2hex(random_bytes(4));
+    }
+
+    $username = $baseUsername;
+    $suffix = 1;
+
+    while (true) {
+        $stmt = $pdo->prepare("SELECT 1 FROM players WHERE username = ?");
+        $stmt->execute([$username]);
+
+        if (!$stmt->fetch()) {
+            break;
+        }
+
+        $username = $baseUsername . "_" . $suffix;
+        $suffix++;
+    }
+
+    $stmt = $pdo->prepare("INSERT INTO players (username) VALUES (?) RETURNING player_id");
+    $stmt->execute([$username]);
+    $row = $stmt->fetch();
+
+    send_json([
+        "player_id" => (int)$row["player_id"],
+        "username"  => $username
+    ], 201);
+}
+
+// POST /api/players
+if ($path === "/api/players" && $method === "POST") {
+    $body = json_decode(file_get_contents("php://input"), true) ?? [];
     if (isset($body["player_id"])) send_json(["error" => "player_id must not be supplied by client"], 400);
     $username = trim($body["username"] ?? "");
     if ($username === "") send_json(["error" => "username is required"], 400);

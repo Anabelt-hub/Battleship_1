@@ -142,36 +142,55 @@ if (preg_match("#^/api/games/(\d+)/?$#", $path, $m) && $method === "GET") {
 }
 
 // POST /api/games/{id}/join
-if (preg_match("#^/api/games/(\d+)/join/?$#", $path, $m)) {
+if (preg_match("#^/api/games/(\d+)/join/?$#", $path, $m) && $method === "POST") {
     $gameId   = (int)$m[1];
     $body     = json_decode(file_get_contents("php://input"), true) ?? [];
     $playerId = (int)($body["player_id"] ?? 0);
 
+    if ($playerId <= 0) {
+        send_json(["error" => "player_id is required"], 400);
+    }
+
     $stmt = $pdo->prepare("SELECT game_id, max_players, status FROM games WHERE game_id = ?");
     $stmt->execute([$gameId]);
     $g = $stmt->fetch();
-    if (!$g) send_json(["error" => "Game not found"], 404);
 
-    // Validate player exists
+    if (!$g) {
+        send_json(["error" => "Game not found"], 404);
+    }
+
+    if ($g["status"] !== "waiting") {
+        send_json(["error" => "Game is not accepting new players"], 409);
+    }
+
     $stmt = $pdo->prepare("SELECT 1 FROM players WHERE player_id = ?");
     $stmt->execute([$playerId]);
-    if (!$stmt->fetch()) send_json(["error" => "Forbidden - invalid player"], 403);
+    if (!$stmt->fetch()) {
+        send_json(["error" => "Player not found"], 404);
+    }
 
-    // Duplicate join -> 400
     $stmt = $pdo->prepare("SELECT 1 FROM game_players WHERE game_id = ? AND player_id = ?");
     $stmt->execute([$gameId, $playerId]);
-    if ($stmt->fetch()) send_json(["error" => "Already joined this game"], 400);
+    if ($stmt->fetch()) {
+        send_json(["error" => "Already joined this game"], 400);
+    }
 
-    // Check capacity
     $stmt = $pdo->prepare("SELECT COUNT(*) AS cnt FROM game_players WHERE game_id = ?");
     $stmt->execute([$gameId]);
     $cnt = (int)$stmt->fetch()["cnt"];
     $maxPlayers = (int)$g["max_players"];
-    if ($maxPlayers > 0 && $cnt >= $maxPlayers) {
-        send_json(["error" => "Game is full"], 400);
+
+    if ($maxPlayers <= 0) {
+        send_json(["error" => "Invalid max_players"], 500);
     }
 
-    $pdo->prepare("INSERT INTO game_players (game_id, player_id) VALUES (?, ?)")->execute([$gameId, $playerId]);
+    if ($cnt >= $maxPlayers) {
+        send_json(["error" => "Game is full"], 409);
+    }
+
+    $stmt = $pdo->prepare("INSERT INTO game_players (game_id, player_id) VALUES (?, ?)");
+    $stmt->execute([$gameId, $playerId]);
+
     send_json(["status" => "joined"], 200);
 }
 

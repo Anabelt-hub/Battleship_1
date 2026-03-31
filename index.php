@@ -159,7 +159,8 @@ if (preg_match("#^/api/games/(\d+)/join/?$#", $path, $m) && $method === "POST") 
         send_json(["error" => "Game not found"], 404);
     }
 
-    if ($g["status"] !== "waiting") {
+   // Only reject if game is finished/cancelled — not based on 'active' status
+    if ($g["status"] === "finished") {
         send_json(["error" => "Game is not accepting new players"], 409);
     }
 

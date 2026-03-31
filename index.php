@@ -246,7 +246,6 @@ if ($result === "hit" && $rem === 0) {
             WHERE game_id = ? AND player_id != ?
         )
     ")->execute([$gameId, $playerId]);
-}
     }
     $pdo->commit();
     send_json(["result" => $result, "game_status" => $gameStatus, "winner_id" => $winnerId]);

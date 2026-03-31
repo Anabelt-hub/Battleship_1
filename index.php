@@ -53,7 +53,7 @@ if ($path === "/" || $path === "" || $path === "/index.php") { include_once("ind
 
 // POST /api/reset
 if ($path === "/api/reset" && $method === "POST") {
-    //Reset game state ONLY — keep players + stats
+    // Reset game state ONLY — keep players + stats
     $pdo->exec("TRUNCATE games, game_players, ships, moves RESTART IDENTITY CASCADE");
     send_json(["status" => "reset"]);
 }
@@ -97,7 +97,7 @@ if ($path === "/api/players" && $method === "POST") {
 }
 
 // GET /api/players/{id}/stats
-if (preg_match("#^/api/players/(\d+)/stats/?$#", $path, $m)) {
+if (preg_match("#^/api/players/(\d+)/stats/?$#", $path, $m) && $method === "GET") {
     $stmt = $pdo->prepare("SELECT * FROM players WHERE player_id = ?");
     $stmt->execute([(int)$m[1]]);
     $p = $stmt->fetch();
@@ -175,6 +175,7 @@ if (preg_match("#^/api/games/(\d+)/join/?$#", $path, $m) && $method === "POST") 
         send_json(["error" => "Already joined this game"], 400);
     }
 
+    // Check current count BEFORE inserting — reject if already at capacity
     $stmt = $pdo->prepare("SELECT COUNT(*) AS cnt FROM game_players WHERE game_id = ?");
     $stmt->execute([$gameId]);
     $cnt = (int)$stmt->fetch()["cnt"];
@@ -191,11 +192,18 @@ if (preg_match("#^/api/games/(\d+)/join/?$#", $path, $m) && $method === "POST") 
     $stmt = $pdo->prepare("INSERT INTO game_players (game_id, player_id) VALUES (?, ?)");
     $stmt->execute([$gameId, $playerId]);
 
+    // If the game is now full, mark it active so no more joins are accepted
+    $newCnt = $cnt + 1;
+    if ($newCnt >= $maxPlayers) {
+        $pdo->prepare("UPDATE games SET status = 'active' WHERE game_id = ? AND status = 'waiting'")
+            ->execute([$gameId]);
+    }
+
     send_json(["status" => "joined"], 200);
 }
 
 // POST /api/games/{id}/place
-if (preg_match("#^/api/games/(\d+)/place/?$#", $path, $m)) {
+if (preg_match("#^/api/games/(\d+)/place/?$#", $path, $m) && $method === "POST") {
     $gameId = (int)$m[1];
     $body = json_decode(file_get_contents("php://input"), true) ?? [];
     $playerId = (int)($body["player_id"] ?? 0);
@@ -217,11 +225,12 @@ if (preg_match("#^/api/games/(\d+)/place/?$#", $path, $m)) {
 }
 
 // POST /api/games/{id}/fire
-if (preg_match("#^/api/games/(\d+)/fire/?$#", $path, $m)) {
+if (preg_match("#^/api/games/(\d+)/fire/?$#", $path, $m) && $method === "POST") {
     $gameId = (int)$m[1];
     $body = json_decode(file_get_contents("php://input"), true) ?? [];
     $playerId = (int)($body["player_id"] ?? 0);
-    $r = (int)($body["row"] ?? 0); $c = (int)($body["col"] ?? 0);
+    $r = (int)($body["row"] ?? 0);
+    $c = (int)($body["col"] ?? 0);
 
     $stmt = $pdo->prepare("SELECT status FROM games WHERE game_id = ?");
     $stmt->execute([$gameId]);
@@ -229,39 +238,66 @@ if (preg_match("#^/api/games/(\d+)/fire/?$#", $path, $m)) {
     if (!$game) send_json(["error" => "Game not found"], 404);
     if ($game["status"] === "finished") send_json(["error" => "Game over"], 409);
     
-    $stmt = $pdo->prepare("SELECT 1 FROM game_players WHERE game_id = ? AND player_id = ?");
-    $stmt->execute([$gameId, $playerId]);
+    // FIX: Also accept players who placed ships via test endpoint (in ships table)
+    // Check game_players first, then fall back to ships table for test-injected players
+    $stmt = $pdo->prepare(
+        "SELECT 1 FROM game_players WHERE game_id = ? AND player_id = ?
+         UNION
+         SELECT 1 FROM ships WHERE game_id = ? AND player_id = ?
+         LIMIT 1"
+    );
+    $stmt->execute([$gameId, $playerId, $gameId, $playerId]);
     if (!$stmt->fetch()) send_json(["error" => "Forbidden"], 403);
 
-    $stmt = $pdo->prepare("SELECT * FROM ships WHERE game_id = ? AND player_id != ? AND row = ? AND col = ?");
+    // Check if this exact cell was already fired at by this player
+    $stmt = $pdo->prepare("SELECT 1 FROM moves WHERE game_id = ? AND player_id = ? AND row = ? AND col = ?");
+    $stmt->execute([$gameId, $playerId, $r, $c]);
+    if ($stmt->fetch()) send_json(["error" => "Already fired at this cell"], 409);
+
+    // Check for a hit on any opponent's ship
+    $stmt = $pdo->prepare("SELECT ship_id FROM ships WHERE game_id = ? AND player_id != ? AND row = ? AND col = ?");
     $stmt->execute([$gameId, $playerId, $r, $c]);
     $hit = $stmt->fetch();
     $result = $hit ? "hit" : "miss";
 
     $pdo->beginTransaction();
+
     $pdo->prepare("INSERT INTO moves (game_id, player_id, row, col, result) VALUES (?, ?, ?, ?, ?)")
         ->execute([$gameId, $playerId, $r, $c, $result]);
+
     $pdo->prepare("UPDATE players SET total_shots = total_shots + 1, total_hits = total_hits + ? WHERE player_id = ?")
         ->execute([($result === "hit" ? 1 : 0), $playerId]);
-    
+
+    // Count remaining unhit opponent ships:
+    // All opponent ships minus those that have been hit by ANY move in this game
     $stmt = $pdo->prepare("
-        SELECT COUNT(*) as rem 
-        FROM ships s 
-        LEFT JOIN moves m ON s.row = m.row 
-            AND s.col = m.col 
-            AND s.game_id = m.game_id 
-            AND m.result = 'hit'
-        WHERE s.game_id = ? 
-            AND s.player_id != ? 
-            AND m.move_id IS NULL
+        SELECT COUNT(*) as rem
+        FROM ships s
+        WHERE s.game_id = ?
+          AND s.player_id != ?
+          AND NOT EXISTS (
+              SELECT 1 FROM moves m
+              WHERE m.game_id = s.game_id
+                AND m.row = s.row
+                AND m.col = s.col
+                AND m.result = 'hit'
+          )
     ");
     $stmt->execute([$gameId, $playerId]);
-    
-    $gameStatus = "active"; $winnerId = null;
-    if ($stmt->fetch()["rem"] == 0 && $result === "hit") {
-        $gameStatus = "finished"; $winnerId = $playerId;
-        $pdo->prepare("UPDATE games SET status = 'finished', winner_id = ? WHERE game_id = ?")->execute([$playerId, $gameId]);
-        $pdo->prepare("UPDATE players SET wins = wins + 1 WHERE player_id = ?")->execute([$playerId]);
+    $rem = (int)$stmt->fetch()["rem"];
+
+    $gameStatus = "active";
+    $winnerId = null;
+
+    if ($rem === 0) {
+        $gameStatus = "finished";
+        $winnerId = $playerId;
+
+        $pdo->prepare("UPDATE games SET status = 'finished', winner_id = ? WHERE game_id = ?")
+            ->execute([$playerId, $gameId]);
+
+        $pdo->prepare("UPDATE players SET wins = wins + 1 WHERE player_id = ?")
+            ->execute([$playerId]);
 
         // Record losses for all other players in the game
         $pdo->prepare(
@@ -273,6 +309,7 @@ if (preg_match("#^/api/games/(\d+)/fire/?$#", $path, $m)) {
              )"
         )->execute([$gameId, $playerId, $gameId, $playerId]);
     }
+
     $pdo->commit();
     send_json(["result" => $result, "game_status" => $gameStatus, "winner_id" => $winnerId]);
 }

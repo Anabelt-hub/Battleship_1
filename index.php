@@ -159,7 +159,7 @@ if (preg_match("#^/api/games/(\d+)/join/?$#", $path, $m) && $method === "POST") 
         send_json(["error" => "Game not found"], 404);
     }
 
-   // Only reject if game is finished/cancelled — not based on 'active' status
+    // Reject if game is finished
     if ($g["status"] === "finished") {
         send_json(["error" => "Game is not accepting new players"], 409);
     }
@@ -170,35 +170,28 @@ if (preg_match("#^/api/games/(\d+)/join/?$#", $path, $m) && $method === "POST") 
         send_json(["error" => "Player not found"], 404);
     }
 
+    // Reject duplicate join
     $stmt = $pdo->prepare("SELECT 1 FROM game_players WHERE game_id = ? AND player_id = ?");
     $stmt->execute([$gameId, $playerId]);
     if ($stmt->fetch()) {
         send_json(["error" => "Already joined this game"], 400);
     }
 
-    // Check current count BEFORE inserting — reject if already at capacity
+    // Count current players and enforce max_players capacity
     $stmt = $pdo->prepare("SELECT COUNT(*) AS cnt FROM game_players WHERE game_id = ?");
     $stmt->execute([$gameId]);
     $cnt = (int)$stmt->fetch()["cnt"];
-    $maxPlayers = (int)$g["max_players"];
 
-    if ($maxPlayers <= 0) {
-        send_json(["error" => "Invalid max_players"], 500);
-    }
+    // max_players from DB — treat NULL or 0 as 2 (safe default)
+    $maxPlayers = (int)$g["max_players"];
+    if ($maxPlayers <= 0) $maxPlayers = 2;
 
     if ($cnt >= $maxPlayers) {
         send_json(["error" => "Game is full"], 409);
     }
 
-    $stmt = $pdo->prepare("INSERT INTO game_players (game_id, player_id) VALUES (?, ?)");
-    $stmt->execute([$gameId, $playerId]);
-
-    // If the game is now full, mark it active so no more joins are accepted
-    $newCnt = $cnt + 1;
-    if ($newCnt >= $maxPlayers) {
-        $pdo->prepare("UPDATE games SET status = 'active' WHERE game_id = ? AND status = 'waiting'")
-            ->execute([$gameId]);
-    }
+    $pdo->prepare("INSERT INTO game_players (game_id, player_id) VALUES (?, ?)")
+        ->execute([$gameId, $playerId]);
 
     send_json(["status" => "joined"], 200);
 }

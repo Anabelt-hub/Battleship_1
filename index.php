@@ -122,8 +122,9 @@ if ($path === "/api/games" && $method === "POST") {
     $body = json_decode(file_get_contents("php://input"), true) ?? [];
     $gridSize = (int)($body["grid_size"] ?? 10);
     $maxPlayers = (int)($body["max_players"] ?? 2);
+    if ($maxPlayers < 2 || $maxPlayers > 10) $maxPlayers = 2; // clamp to sane range
     if ($gridSize < 5 || $gridSize > 15) send_json(["error" => "Invalid grid size"], 400);
-    
+
     $stmt = $pdo->prepare("INSERT INTO games (grid_size, max_players) VALUES (?, ?) RETURNING game_id");
     $stmt->execute([$gridSize, $maxPlayers]);
     send_json(["game_id" => (int)$stmt->fetch()["game_id"]], 201);
@@ -147,42 +148,49 @@ if (preg_match("#^/api/games/(\d+)/join/?$#", $path, $m) && $method === "POST") 
     $body     = json_decode(file_get_contents("php://input"), true) ?? [];
     $playerId = (int)($body["player_id"] ?? 0);
 
-    if ($playerId <= 0) send_json(["error" => "player_id required"], 400);
+    if ($playerId <= 0) {
+        send_json(["error" => "player_id is required"], 400);
+    }
 
-    $pdo->beginTransaction(); // Start transaction to prevent race conditions
-
-    // 1. Lock the game row so other requests wait
-    $stmt = $pdo->prepare("SELECT max_players, status FROM games WHERE game_id = ? FOR UPDATE");
+    $stmt = $pdo->prepare("SELECT game_id, max_players, status FROM games WHERE game_id = ?");
     $stmt->execute([$gameId]);
     $g = $stmt->fetch();
 
-    if (!$g) { $pdo->rollBack(); send_json(["error" => "Not found"], 404); }
-    if ($g["status"] === "finished") { $pdo->rollBack(); send_json(["error" => "Game over"], 409); }
+    if (!$g) {
+        send_json(["error" => "Game not found"], 404);
+    }
 
-    // 2. Count current players inside the lock
-    $stmt = $pdo->prepare("SELECT COUNT(*) AS cnt FROM game_players WHERE game_id = ?");
-    $stmt->execute([$gameId]);
-    $cnt = (int)$stmt->fetch()["cnt"];
-    $maxPlayers = (int)($g["max_players"] ?: 2);
+    if ($g["status"] === "finished") {
+        send_json(["error" => "Game is not accepting new players"], 409);
+    }
 
-    // 3. Check for Duplicate
+    $stmt = $pdo->prepare("SELECT 1 FROM players WHERE player_id = ?");
+    $stmt->execute([$playerId]);
+    if (!$stmt->fetch()) {
+        send_json(["error" => "Player not found"], 404);
+    }
+
     $stmt = $pdo->prepare("SELECT 1 FROM game_players WHERE game_id = ? AND player_id = ?");
     $stmt->execute([$gameId, $playerId]);
     if ($stmt->fetch()) {
-        $pdo->rollBack();
-        send_json(["status" => "joined"], 200); // Already in is a success
+        send_json(["error" => "Already joined this game"], 400);
     }
 
-    // 4. THE FIX: Check capacity after locking the table
+    // Count current players
+    $stmt = $pdo->prepare("SELECT COUNT(*) AS cnt FROM game_players WHERE game_id = ?");
+    $stmt->execute([$gameId]);
+    $cnt = (int)$stmt->fetch()["cnt"];
+
+    // Read max_players stored at game creation — clamp to sane range
+    $maxPlayers = (int)$g["max_players"];
+    if ($maxPlayers < 2 || $maxPlayers > 10) $maxPlayers = 2;
+
     if ($cnt >= $maxPlayers) {
-        $pdo->rollBack();
-        send_json(["error" => "Game is full"], 409); // This stops the 200 OK leak
+        send_json(["error" => "Game is full"], 409);
     }
 
-    // 5. Insert and Commit
     $pdo->prepare("INSERT INTO game_players (game_id, player_id) VALUES (?, ?)")
         ->execute([$gameId, $playerId]);
-    $pdo->commit();
 
     send_json(["status" => "joined"], 200);
 }

@@ -126,16 +126,36 @@ if (preg_match("#^/api/games/(\d+)/join/?$#", $path, $m)) {
     $gameId = (int)$m[1];
     $body = json_decode(file_get_contents("php://input"), true) ?? [];
     $playerId = (int)($body["player_id"] ?? 0);
+
+    // 1. Get max_players for this game
+    $stmt = $pdo->prepare("SELECT max_players FROM games WHERE game_id = ?");
+    $stmt->execute([$gameId]);
+    $g = $stmt->fetch();
+    if (!$g) send_json(["error" => "Game not found"], 404);
+
+    // 2. Check if player is already in the game (prevents "Game is full" error if you are just re-joining)
+    $stmt = $pdo->prepare("SELECT 1 FROM game_players WHERE game_id = ? AND player_id = ?");
+    $stmt->execute([$gameId, $playerId]);
+    if ($stmt->fetch()) {
+        send_json(["status" => "joined"], 200); // Already in, just return success
+    }
+
+    // 3. Count current players
+    $stmt = $pdo->prepare("SELECT COUNT(*) as current FROM game_players WHERE game_id = ?");
+    $stmt->execute([$gameId]);
+    if ($stmt->fetch()["current"] >= (int)$g["max_players"]) {
+        send_json(["error" => "Game is full"], 400); // Fixes the failed "Joining A Full Game" test
+    }
+
+    // 4. Finally, perform the join
     try {
         $stmt = $pdo->prepare("INSERT INTO game_players (game_id, player_id) VALUES (?, ?)");
         $stmt->execute([$gameId, $playerId]);
-        send_json(["status" => "joined"]);
+        send_json(["status" => "joined"], 201);
     } catch (PDOException $e) {
-        if ($e->getCode() == '23505') send_json(["error" => "Already joined"], 400);
         send_json(["error" => "Join failed"], 400);
     }
 }
-
 // POST /api/games/{id}/place
 if (preg_match("#^/api/games/(\d+)/place/?$#", $path, $m)) {
     $gameId = (int)$m[1];

@@ -102,7 +102,7 @@ if (preg_match("#^/api/players/(\d+)/stats/?$#", $path, $m) && $method === "GET"
     $stmt->execute([(int)$m[1]]);
     $p = $stmt->fetch();
     if (!$p) send_json(["error" => "Player not found"], 404);
-    
+
     $shots  = (int)$p["total_shots"];
     $hits   = (int)$p["total_hits"];
     $wins   = (int)$p["wins"];
@@ -122,8 +122,9 @@ if ($path === "/api/games" && $method === "POST") {
     $body = json_decode(file_get_contents("php://input"), true) ?? [];
     $gridSize = (int)($body["grid_size"] ?? 10);
     $maxPlayers = (int)($body["max_players"] ?? 2);
+    if ($maxPlayers < 2 || $maxPlayers > 10) $maxPlayers = 2; // clamp to sane range
     if ($gridSize < 5 || $gridSize > 15) send_json(["error" => "Invalid grid size"], 400);
-    
+
     $stmt = $pdo->prepare("INSERT INTO games (grid_size, max_players) VALUES (?, ?) RETURNING game_id");
     $stmt->execute([$gridSize, $maxPlayers]);
     send_json(["game_id" => (int)$stmt->fetch()["game_id"]], 201);
@@ -152,6 +153,7 @@ if (preg_match("#^/api/games/(\d+)/join/?$#", $path, $m) && $method === "POST") 
     }
 
     $stmt = $pdo->prepare("SELECT game_id, max_players, status FROM games WHERE game_id = ?");
+
     $stmt->execute([$gameId]);
     $g = $stmt->fetch();
 
@@ -159,21 +161,8 @@ if (preg_match("#^/api/games/(\d+)/join/?$#", $path, $m) && $method === "POST") 
         send_json(["error" => "Game not found"], 404);
     }
 
-
     if ($g["status"] === "finished") {
         send_json(["error" => "Game is not accepting new players"], 409);
-    }
-
-    // Check capacity FIRST — before player lookup, so a full game always returns 409
-    $maxPlayers = (int)$g["max_players"];
-    if ($maxPlayers < 1) $maxPlayers = 2;
-
-    $stmt = $pdo->prepare("SELECT COUNT(*) AS cnt FROM game_players WHERE game_id = ?");
-    $stmt->execute([$gameId]);
-    $cnt = (int)$stmt->fetch()["cnt"];
-
-    if ($cnt >= $maxPlayers) {
-        send_json(["error" => "Game is full"], 409);
     }
 
     $stmt = $pdo->prepare("SELECT 1 FROM players WHERE player_id = ?");
@@ -182,18 +171,35 @@ if (preg_match("#^/api/games/(\d+)/join/?$#", $path, $m) && $method === "POST") 
         send_json(["error" => "Player not found"], 404);
     }
 
+
     $stmt = $pdo->prepare("SELECT 1 FROM game_players WHERE game_id = ? AND player_id = ?");
     $stmt->execute([$gameId, $playerId]);
     if ($stmt->fetch()) {
         send_json(["error" => "Already joined this game"], 400);
+
     }
+
+    // Count current players
+    $stmt = $pdo->prepare("SELECT COUNT(*) AS cnt FROM game_players WHERE game_id = ?");
+    $stmt->execute([$gameId]);
+    $cnt = (int)$stmt->fetch()["cnt"];
+
+    // Read max_players stored at game creation — clamp to sane range
+    $maxPlayers = (int)$g["max_players"];
+    if ($maxPlayers < 2 || $maxPlayers > 10) $maxPlayers = 2;
+
+    if ($cnt >= $maxPlayers) {
+        send_json(["error" => "Game is full"], 409);
+
+    }
+
 
     $pdo->prepare("INSERT INTO game_players (game_id, player_id) VALUES (?, ?)")
         ->execute([$gameId, $playerId]);
 
+
     send_json(["status" => "joined"], 200);
 }
-
 
 // POST /api/games/{id}/place
 if (preg_match("#^/api/games/(\d+)/place/?$#", $path, $m) && $method === "POST") {
@@ -202,7 +208,7 @@ if (preg_match("#^/api/games/(\d+)/place/?$#", $path, $m) && $method === "POST")
     $playerId = (int)($body["player_id"] ?? 0);
     $ships = $body["ships"] ?? [];
     if (count($ships) !== 3) send_json(["error" => "Exactly 3 ships required"], 400);
-    
+
     $pdo->beginTransaction();
     foreach ($ships as $s) {
         $pdo->prepare("INSERT INTO ships (game_id, player_id, row, col) VALUES (?, ?, ?, ?)")
@@ -230,7 +236,7 @@ if (preg_match("#^/api/games/(\d+)/fire/?$#", $path, $m) && $method === "POST") 
     $game = $stmt->fetch();
     if (!$game) send_json(["error" => "Game not found"], 404);
     if ($game["status"] === "finished") send_json(["error" => "Game over"], 409);
-    
+
     // FIX: Also accept players who placed ships via test endpoint (in ships table)
     // Check game_players first, then fall back to ships table for test-injected players
     $stmt = $pdo->prepare(
@@ -335,4 +341,4 @@ if (preg_match("#^/api/test/games/(\d+)/board/(\d+)/?$#", $path, $m)) {
     send_json(["ships" => $stmt->fetchAll()]);
 }
 
-send_json(["error" => "
+send_json(["error" => "Not found"], 404);

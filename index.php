@@ -151,47 +151,63 @@ if (preg_match("#^/api/games/(\d+)/join/?$#", $path, $m) && $method === "POST") 
         send_json(["error" => "player_id is required"], 400);
     }
 
-    $stmt = $pdo->prepare("SELECT game_id, max_players, status FROM games WHERE game_id = ?");
-    $stmt->execute([$gameId]);
-    $g = $stmt->fetch();
+    try {
+        $pdo->beginTransaction();
 
-    if (!$g) {
-        send_json(["error" => "Game not found"], 404);
+        // Lock the game row to prevent concurrent joins both succeeding
+        $stmt = $pdo->prepare("SELECT game_id, max_players, status FROM games WHERE game_id = ? FOR UPDATE");
+        $stmt->execute([$gameId]);
+        $g = $stmt->fetch();
+
+        if (!$g) {
+            $pdo->rollBack();
+            send_json(["error" => "Game not found"], 404);
+        }
+
+        if ($g["status"] === "finished") {
+            $pdo->rollBack();
+            send_json(["error" => "Game is not accepting new players"], 409);
+        }
+
+        // Check capacity FIRST — before player lookup, so a full game always returns 409
+        $maxPlayers = (int)$g["max_players"];
+        if ($maxPlayers < 1) $maxPlayers = 2;
+
+        $stmt = $pdo->prepare("SELECT COUNT(*) AS cnt FROM game_players WHERE game_id = ?");
+        $stmt->execute([$gameId]);
+        $cnt = (int)$stmt->fetch()["cnt"];
+
+        if ($cnt >= $maxPlayers) {
+            $pdo->rollBack();
+            send_json(["error" => "Game is full"], 409);
+        }
+
+        // Check player exists
+        $stmt = $pdo->prepare("SELECT 1 FROM players WHERE player_id = ?");
+        $stmt->execute([$playerId]);
+        if (!$stmt->fetch()) {
+            $pdo->rollBack();
+            send_json(["error" => "Player not found"], 404);
+        }
+
+        // Prevent duplicate join
+        $stmt = $pdo->prepare("SELECT 1 FROM game_players WHERE game_id = ? AND player_id = ?");
+        $stmt->execute([$gameId, $playerId]);
+        if ($stmt->fetch()) {
+            $pdo->rollBack();
+            send_json(["error" => "Already joined this game"], 400);
+        }
+
+        $pdo->prepare("INSERT INTO game_players (game_id, player_id) VALUES (?, ?)")
+            ->execute([$gameId, $playerId]);
+
+        $pdo->commit();
+        send_json(["status" => "joined"], 200);
+
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        send_json(["error" => "Unable to join game"], 500);
     }
-
-
-    if ($g["status"] === "finished") {
-        send_json(["error" => "Game is not accepting new players"], 409);
-    }
-
-    // Check capacity FIRST — before player lookup, so a full game always returns 409
-    $maxPlayers = (int)$g["max_players"];
-    if ($maxPlayers < 1) $maxPlayers = 2;
-
-    $stmt = $pdo->prepare("SELECT COUNT(*) AS cnt FROM game_players WHERE game_id = ?");
-    $stmt->execute([$gameId]);
-    $cnt = (int)$stmt->fetch()["cnt"];
-
-    if ($cnt >= $maxPlayers) {
-        send_json(["error" => "Game is full"], 409);
-    }
-
-    $stmt = $pdo->prepare("SELECT 1 FROM players WHERE player_id = ?");
-    $stmt->execute([$playerId]);
-    if (!$stmt->fetch()) {
-        send_json(["error" => "Player not found"], 404);
-    }
-
-    $stmt = $pdo->prepare("SELECT 1 FROM game_players WHERE game_id = ? AND player_id = ?");
-    $stmt->execute([$gameId, $playerId]);
-    if ($stmt->fetch()) {
-        send_json(["error" => "Already joined this game"], 400);
-    }
-
-    $pdo->prepare("INSERT INTO game_players (game_id, player_id) VALUES (?, ?)")
-        ->execute([$gameId, $playerId]);
-
-    send_json(["status" => "joined"], 200);
 }
 
 

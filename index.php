@@ -102,7 +102,7 @@ if (preg_match("#^/api/players/(\d+)/stats/?$#", $path, $m) && $method === "GET"
     $stmt->execute([(int)$m[1]]);
     $p = $stmt->fetch();
     if (!$p) send_json(["error" => "Player not found"], 404);
-
+    
     $shots  = (int)$p["total_shots"];
     $hits   = (int)$p["total_hits"];
     $wins   = (int)$p["wins"];
@@ -153,7 +153,6 @@ if (preg_match("#^/api/games/(\d+)/join/?$#", $path, $m) && $method === "POST") 
     }
 
     $stmt = $pdo->prepare("SELECT game_id, max_players, status FROM games WHERE game_id = ?");
-
     $stmt->execute([$gameId]);
     $g = $stmt->fetch();
 
@@ -171,12 +170,10 @@ if (preg_match("#^/api/games/(\d+)/join/?$#", $path, $m) && $method === "POST") 
         send_json(["error" => "Player not found"], 404);
     }
 
-
     $stmt = $pdo->prepare("SELECT 1 FROM game_players WHERE game_id = ? AND player_id = ?");
     $stmt->execute([$gameId, $playerId]);
     if ($stmt->fetch()) {
         send_json(["error" => "Already joined this game"], 400);
-
     }
 
     // Count current players
@@ -190,13 +187,10 @@ if (preg_match("#^/api/games/(\d+)/join/?$#", $path, $m) && $method === "POST") 
 
     if ($cnt >= $maxPlayers) {
         send_json(["error" => "Game is full"], 409);
-
     }
-
 
     $pdo->prepare("INSERT INTO game_players (game_id, player_id) VALUES (?, ?)")
         ->execute([$gameId, $playerId]);
-
 
     send_json(["status" => "joined"], 200);
 }
@@ -208,7 +202,7 @@ if (preg_match("#^/api/games/(\d+)/place/?$#", $path, $m) && $method === "POST")
     $playerId = (int)($body["player_id"] ?? 0);
     $ships = $body["ships"] ?? [];
     if (count($ships) !== 3) send_json(["error" => "Exactly 3 ships required"], 400);
-
+    
     $pdo->beginTransaction();
     foreach ($ships as $s) {
         $pdo->prepare("INSERT INTO ships (game_id, player_id, row, col) VALUES (?, ?, ?, ?)")
@@ -236,7 +230,7 @@ if (preg_match("#^/api/games/(\d+)/fire/?$#", $path, $m) && $method === "POST") 
     $game = $stmt->fetch();
     if (!$game) send_json(["error" => "Game not found"], 404);
     if ($game["status"] === "finished") send_json(["error" => "Game over"], 409);
-
+    
     // FIX: Also accept players who placed ships via test endpoint (in ships table)
     // Check game_players first, then fall back to ships table for test-injected players
     $stmt = $pdo->prepare(

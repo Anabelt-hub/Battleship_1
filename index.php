@@ -161,22 +161,9 @@ if (preg_match("#^/api/games/(\d+)/join/?$#", $path, $m) && $method === "POST") 
         send_json(["error" => "Game not found"], 404);
     }
 
-
     if ($g["status"] === "finished") {
         send_json(["error" => "Game is not accepting new players"], 409);
     }
-
-
-
-
-
-
-
-
-
-
-
-
 
     $stmt = $pdo->prepare("SELECT 1 FROM players WHERE player_id = ?");
     $stmt->execute([$playerId]);
@@ -213,7 +200,6 @@ if (preg_match("#^/api/games/(\d+)/join/?$#", $path, $m) && $method === "POST") 
 
     send_json(["status" => "joined"], 200);
 }
-
 
 // POST /api/games/{id}/place
 if (preg_match("#^/api/games/(\d+)/place/?$#", $path, $m) && $method === "POST") {

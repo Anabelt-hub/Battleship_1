@@ -84,7 +84,7 @@ if (preg_match("#^/api/games/(\d+)/join/?$#", $path, $m) && $method === "POST") 
     send_json(["status" => "joined"]);
 }
 
-// 🛠️ UPDATE 1: GET /api/games/{id} (Fixed 404 Routing)
+// GET /api/games/{id}
 if (preg_match("#^/api/games/(\d+)/?$#", $path, $m) && $method === "GET") {
     $gameId = (int)$m[1];
     $stmt = $pdo->prepare("SELECT * FROM games WHERE game_id = ?");
@@ -114,7 +114,7 @@ if (preg_match("#^/api/games/(\d+)/?$#", $path, $m) && $method === "GET") {
     ]);
 }
 
-// 🛠️ UPDATE 2: POST /api/games/{id}/place (Instant Activation)
+// POST /api/games/{id}/place (Instant Activation)
 if (preg_match("#^/api/games/(\d+)/place/?$#", $path, $m) && $method === "POST") {
     $gameId = (int)$m[1];
     $body = json_decode(file_get_contents("php://input"), true) ?? [];
@@ -122,28 +122,28 @@ if (preg_match("#^/api/games/(\d+)/place/?$#", $path, $m) && $method === "POST")
 
     $pdo->beginTransaction();
 
-// 1. clear old ships
+    // 1. clear old ships
     $pdo->prepare("DELETE FROM ships WHERE game_id = ? AND player_id = ?")
         ->execute([$gameId, $playerId]);
 
-// 2. insert ships
+    // 2. insert ships
     foreach ($body["ships"] as $s) {
         $pdo->prepare("INSERT INTO ships (game_id, player_id, row, col) VALUES (?, ?, ?, ?)")
         ->execute([$gameId, $playerId, (int)$s["row"], (int)$s["col"]]);
     }
 
-// 3. total players
-    $stmtTotal = $pdo->prepare("SELECT COUNT(*) as total FROM game_players WHERE game_id = ?");
+    // 3. total players expected
+    $stmtTotal = $pdo->prepare("SELECT max_players FROM games WHERE game_id = ?");
     $stmtTotal->execute([$gameId]);
-    $totalPlayers = (int)$stmtTotal->fetch()["total"];
+    $totalNeeded = (int)$stmtTotal->fetch()["max_players"];
 
-// 4. players who placed
+    // 4. players who placed
     $stmtPlaced = $pdo->prepare("SELECT COUNT(DISTINCT player_id) as placed FROM ships WHERE game_id = ?");
     $stmtPlaced->execute([$gameId]);
     $placedPlayers = (int)$stmtPlaced->fetch()["placed"];
 
-// 5. transition if ready
-    if ($totalPlayers > 0 && $placedPlayers === $totalPlayers) {
+    // 5. transition if ready
+    if ($placedPlayers >= $totalNeeded) {
         $first = $pdo->prepare("SELECT player_id FROM game_players WHERE game_id = ? ORDER BY player_id ASC LIMIT 1");
         $first->execute([$gameId]);
         $fp = (int)$first->fetch()["player_id"];
@@ -154,7 +154,8 @@ if (preg_match("#^/api/games/(\d+)/place/?$#", $path, $m) && $method === "POST")
 
     $pdo->commit();
     send_json(["status" => "placed"]);
-    
+} // <--- Added missing brace
+
 // POST /api/games/{id}/fire
 if (preg_match("#^/api/games/(\d+)/fire/?$#", $path, $m) && $method === "POST") {
     $gameId = (int)$m[1];
@@ -201,18 +202,15 @@ if (preg_match("#^/api/test/games/(\d+)/ships/?$#", $path, $m) && $method === "P
     $pId = (int)($body["player_id"] ?? 0);
 
     $pdo->beginTransaction();
-    // Clear any existing ships for this player and insert new ones
     $pdo->prepare("DELETE FROM ships WHERE game_id = ? AND player_id = ?")->execute([$gameId, $pId]);
     foreach ($body["ships"] as $s) {
         $pdo->prepare("INSERT INTO ships (game_id, player_id, row, col) VALUES (?, ?, ?, ?)")
             ->execute([$gameId, $pId, (int)$s["row"], (int)$s["col"]]);
     }
 
-    // CHECK IF GAME SHOULD START (Now handled for test placements too)
     $stmtC = $pdo->prepare("SELECT COUNT(DISTINCT player_id) as c FROM ships WHERE game_id = ?");
     $stmtC->execute([$gameId]);
     if ((int)$stmtC->fetch()["c"] >= 2) {
-        // Automatically start the game and assign the first turn
         $first = $pdo->prepare("SELECT player_id FROM game_players WHERE game_id = ? ORDER BY player_id ASC LIMIT 1");
         $first->execute([$gameId]);
         $fp = (int)$first->fetch()["player_id"];
@@ -232,4 +230,4 @@ if (preg_match("#^/api/test/games/(\d+)/board/(\d+)/?$#", $path, $m) && $method 
 }
 
 // Final fallback for missing endpoints
-send_error("not_found", "Endpoint not found", 404);
+send_error("not_found", "Endpoint not found", 404); // Added closing parenthesis

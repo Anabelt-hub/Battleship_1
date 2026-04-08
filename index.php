@@ -1,6 +1,6 @@
 <?php
+// 1. DEBUGGING (Turn off for Gradescope)
 ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
 error_reporting(E_ALL);
 
 header("Access-Control-Allow-Origin: *");
@@ -94,10 +94,7 @@ if (preg_match("#^/api/games/(\d+)/?$#", $path, $m) && $method === "GET") {
     $stmt = $pdo->prepare("SELECT * FROM games WHERE game_id = ?");
     $stmt->execute([$gameId]);
     $g = $stmt->fetch();
-
-    if (!$g) {
-        send_error("not_found", "Game $gameId not found in system", 404);
-    }
+    if (!$g) send_error("not_found", "Game not found", 404);
 
     $stmtP = $pdo->prepare("SELECT player_id FROM game_players WHERE game_id = ?");
     $stmtP->execute([$gameId]);
@@ -107,66 +104,34 @@ if (preg_match("#^/api/games/(\d+)/?$#", $path, $m) && $method === "GET") {
         $stmtS->execute([$gameId, $rowP["player_id"]]);
         $players[] = ["player_id" => (int)$rowP["player_id"], "ships_remaining" => (int)$stmtS->fetch()["rem"]];
     }
-
-    send_json([
-        "game_id" => (int)$g["game_id"],
-        "grid_size" => (int)$g["grid_size"],
-        "status" => $g["status"],
-        "players" => $players,
-        "current_turn_player_id" => $g["current_turn_player_id"] ? (int)$g["current_turn_player_id"] : null,
-        "total_moves" => 0
-    ]);
+    send_json(["game_id" => (int)$g["game_id"], "grid_size" => (int)$g["grid_size"], "status" => $g["status"], "players" => $players, "current_turn_player_id" => $g["current_turn_player_id"] ? (int)$g["current_turn_player_id"] : null]);
 }
 
-// POST /api/games/{id}/place (Instant Activation)
+// POST /api/games/{id}/place (INSTANT ACTIVATION)
 if (preg_match("#^/api/games/(\d+)/place/?$#", $path, $m) && $method === "POST") {
     $gameId = (int)$m[1];
     $body = json_decode(file_get_contents("php://input"), true) ?? [];
-    // ✅ FIX 1: Validate input BEFORE the foreach loop
-    if (!isset($body["ships"]) || !is_array($body["ships"])) {
-        send_error("bad_request", "Invalid ships payload", 400);
-    }
+    
+    if (!isset($body["ships"]) || !is_array($body["ships"])) send_error("bad_request", "Invalid ships payload");
     
     $playerId = (int)($body["player_id"] ?? 0);
-
     $pdo->beginTransaction();
-
-    // 1. clear old ships
-    $pdo->prepare("DELETE FROM ships WHERE game_id = ? AND player_id = ?")
-        ->execute([$gameId, $playerId]);
-
-    // 2. insert ships
+    $pdo->prepare("DELETE FROM ships WHERE game_id = ? AND player_id = ?")->execute([$gameId, $playerId]);
     foreach ($body["ships"] as $s) {
-        if (!isset($s["row"]) || !isset($s["col"])) continue;
-        
-        $pdo->prepare("INSERT INTO ships (game_id, player_id, row, col) VALUES (?, ?, ?, ?)")
-        ->execute([$gameId, $playerId, (int)$s["row"], (int)$s["col"]]);
+        $pdo->prepare("INSERT INTO ships (game_id, player_id, row, col) VALUES (?, ?, ?, ?)")->execute([$gameId, $playerId, (int)$s["row"], (int)$s["col"]]);
     }
-
-    // 3. total players expected
-    $stmtTotal = $pdo->prepare("SELECT max_players FROM games WHERE game_id = ?");
-    $stmtTotal->execute([$gameId]);
-    $totalNeeded = (int)$stmtTotal->fetch()["max_players"];
-
-    // 4. players who placed
-    $stmtPlaced = $pdo->prepare("SELECT COUNT(DISTINCT player_id) as placed FROM ships WHERE game_id = ?");
-    $stmtPlaced->execute([$gameId]);
-    $placedPlayers = (int)$stmtPlaced->fetch()["placed"];
-
-    // 5. transition if ready
-    if ($placedPlayers >= $totalNeeded) {
+    
+    $stmtC = $pdo->prepare("SELECT COUNT(DISTINCT player_id) as c FROM ships WHERE game_id = ?");
+    $stmtC->execute([$gameId]);
+    if ((int)$stmtC->fetch()["c"] >= 2) {
         $first = $pdo->prepare("SELECT player_id FROM game_players WHERE game_id = ? ORDER BY player_id ASC LIMIT 1");
         $first->execute([$gameId]);
         $fp = (int)$first->fetch()["player_id"];
-
-        $pdo->prepare("UPDATE games SET status = 'playing', current_turn_player_id = ? WHERE game_id = ?")
-            ->execute([$fp, $gameId]);
+        $pdo->prepare("UPDATE games SET status = 'playing', current_turn_player_id = ? WHERE game_id = ?")->execute([$fp, $gameId]);
     }
-
     $pdo->commit();
     send_json(["status" => "placed"]);
-    
-} // <--- Added missing brace
+}
 
 // POST /api/games/{id}/fire
 if (preg_match("#^/api/games/(\d+)/fire/?$#", $path, $m) && $method === "POST") {
@@ -185,14 +150,12 @@ if (preg_match("#^/api/games/(\d+)/fire/?$#", $path, $m) && $method === "POST") 
     $stmt->execute([$gameId]);
     $active = $stmt->fetchAll();
 
-    $gameStatus = (count($active) === 1) ? "finished" : "playing";
-    $winnerId = (count($active) === 1) ? (int)$active[0]["player_id"] : null;
-    
+    $gameStatus = (count($active) <= 1) ? "finished" : "playing";
     if ($gameStatus === "finished") {
+        $winnerId = count($active) === 1 ? (int)$active[0]["player_id"] : $playerId;
         $pdo->prepare("UPDATE games SET status = 'finished', winner_id = ? WHERE game_id = ?")->execute([$winnerId, $gameId]);
     }
-
-    send_json(["result" => $result, "game_status" => $gameStatus, "next_player_id" => 0, "winner_id" => $winnerId]);
+    send_json(["result" => $result, "game_status" => $gameStatus, "next_player_id" => 0]);
 }
 
 // POST /api/test/games/{id}/restart
@@ -201,33 +164,20 @@ if (preg_match("#^/api/test/games/(\d+)/restart/?$#", $path, $m) && $method === 
     $gameId = (int)$m[1];
     $pdo->prepare("DELETE FROM ships WHERE game_id = ?")->execute([$gameId]);
     $pdo->prepare("DELETE FROM moves WHERE game_id = ?")->execute([$gameId]);
-    $pdo->prepare("UPDATE games SET status = 'waiting_setup', current_turn_player_id = null, winner_id = null WHERE game_id = ?")
-        ->execute([$gameId]);
+    $pdo->prepare("UPDATE games SET status = 'waiting_setup', current_turn_player_id = null WHERE game_id = ?")->execute([$gameId]);
     send_json(["status" => "reset"]);
 }
 
-// POST /api/test/games/{id}/ships (Used by CPU in game.js)
+// POST /api/test/games/{id}/ships
 if (preg_match("#^/api/test/games/(\d+)/ships/?$#", $path, $m) && $method === "POST") {
     check_test_auth($TEST_PASSWORD);
     $gameId = (int)$m[1];
     $body = json_decode(file_get_contents("php://input"), true) ?? [];
     $pId = (int)($body["player_id"] ?? 0);
-
     $pdo->beginTransaction();
     $pdo->prepare("DELETE FROM ships WHERE game_id = ? AND player_id = ?")->execute([$gameId, $pId]);
     foreach ($body["ships"] as $s) {
-        $pdo->prepare("INSERT INTO ships (game_id, player_id, row, col) VALUES (?, ?, ?, ?)")
-            ->execute([$gameId, $pId, (int)$s["row"], (int)$s["col"]]);
-    }
-
-    $stmtC = $pdo->prepare("SELECT COUNT(DISTINCT player_id) as c FROM ships WHERE game_id = ?");
-    $stmtC->execute([$gameId]);
-    if ((int)$stmtC->fetch()["c"] >= 2) {
-        $first = $pdo->prepare("SELECT player_id FROM game_players WHERE game_id = ? ORDER BY player_id ASC LIMIT 1");
-        $first->execute([$gameId]);
-        $fp = (int)$first->fetch()["player_id"];
-        $pdo->prepare("UPDATE games SET status = 'playing', current_turn_player_id = ? WHERE game_id = ?")
-            ->execute([$fp, $gameId]);
+        $pdo->prepare("INSERT INTO ships (game_id, player_id, row, col) VALUES (?, ?, ?, ?)")->execute([$gameId, $pId, (int)$s["row"], (int)$s["col"]]);
     }
     $pdo->commit();
     send_json(["status" => "ships placed"]);
@@ -241,5 +191,4 @@ if (preg_match("#^/api/test/games/(\d+)/board/(\d+)/?$#", $path, $m) && $method 
     send_json(["ships" => $stmt->fetchAll()]);
 }
 
-// Final fallback for missing endpoints
-send_error("not_found", "Endpoint not found", 404); // Added closing parenthesis
+send_error("not_found", "Endpoint not found", 404);

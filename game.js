@@ -168,7 +168,7 @@ async function submitPlacement() {
         if (btnConfirmPlacement) btnConfirmPlacement.disabled = true;
         setStatus("Fleet deployed. Battle stations!");
         
-        // IMMEDIATE POLL: Don't wait 2 seconds for the first check
+        // IMMEDIATE CHECK: Force the transition check right now
         await pollForActivation(); 
     } else {
         const err = await res.json();

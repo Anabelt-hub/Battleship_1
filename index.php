@@ -121,30 +121,40 @@ if (preg_match("#^/api/games/(\d+)/place/?$#", $path, $m) && $method === "POST")
     $playerId = (int)($body["player_id"] ?? 0);
 
     $pdo->beginTransaction();
-    
-    // Clear old data to prevent constraint errors and insert new ships
-    $pdo->prepare("DELETE FROM ships WHERE game_id = ? AND player_id = ?")->execute([$gameId, $playerId]);
+
+// 1. clear old ships
+    $pdo->prepare("DELETE FROM ships WHERE game_id = ? AND player_id = ?")
+        ->execute([$gameId, $playerId]);
+
+// 2. insert ships
     foreach ($body["ships"] as $s) {
         $pdo->prepare("INSERT INTO ships (game_id, player_id, row, col) VALUES (?, ?, ?, ?)")
-            ->execute([$gameId, $playerId, (int)$s["row"], (int)$s["col"]]);
+        ->execute([$gameId, $playerId, (int)$s["row"], (int)$s["col"]]);
     }
 
-    // CHECK CAPACITY: Transition to 'playing' if both players are ready
-    $stmtC = $pdo->prepare("SELECT COUNT(DISTINCT player_id) as c FROM ships WHERE game_id = ?");
-    $stmtC->execute([$gameId]);
-    if ((int)$stmtC->fetch()["c"] >= 2) {
+// 3. total players
+    $stmtTotal = $pdo->prepare("SELECT COUNT(*) as total FROM game_players WHERE game_id = ?");
+    $stmtTotal->execute([$gameId]);
+    $totalPlayers = (int)$stmtTotal->fetch()["total"];
+
+// 4. players who placed
+    $stmtPlaced = $pdo->prepare("SELECT COUNT(DISTINCT player_id) as placed FROM ships WHERE game_id = ?");
+    $stmtPlaced->execute([$gameId]);
+    $placedPlayers = (int)$stmtPlaced->fetch()["placed"];
+
+// 5. transition if ready
+    if ($totalPlayers > 0 && $placedPlayers === $totalPlayers) {
         $first = $pdo->prepare("SELECT player_id FROM game_players WHERE game_id = ? ORDER BY player_id ASC LIMIT 1");
         $first->execute([$gameId]);
         $fp = (int)$first->fetch()["player_id"];
-        
+
         $pdo->prepare("UPDATE games SET status = 'playing', current_turn_player_id = ? WHERE game_id = ?")
             ->execute([$fp, $gameId]);
     }
 
     $pdo->commit();
     send_json(["status" => "placed"]);
-}
-
+    
 // POST /api/games/{id}/fire
 if (preg_match("#^/api/games/(\d+)/fire/?$#", $path, $m) && $method === "POST") {
     $gameId = (int)$m[1];

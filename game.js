@@ -32,7 +32,7 @@ async function startNewMission() {
     const pRes = await fetch('/api/players', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: "Captain Gabbie" })
+        body: JSON.stringify({ username: "Captain_Gabbie" })
     });
     const pData = await pRes.json();
     playerId = pData.player_id;
@@ -87,6 +87,9 @@ async function setupCPUOpponent(currentGId) {
 
 async function submitPlacement() {
     if (selectedShips.length !== 3) return alert("Select 3 sectors.");
+
+    console.log("Submitting ships payload:", selectedShips);
+    
     const currentGId = localStorage.getItem('currentGameId');
     const currentPId = localStorage.getItem('currentPlayerId');
 

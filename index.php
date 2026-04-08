@@ -1,4 +1,8 @@
 <?php
+ini_set('display_errors', 1);
+ini_set('display_startup_errors', 1);
+error_reporting(E_ALL);
+
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: POST, GET, OPTIONS, DELETE");
 header("Access-Control-Allow-Headers: Content-Type, X-Test-Password");
@@ -118,6 +122,11 @@ if (preg_match("#^/api/games/(\d+)/?$#", $path, $m) && $method === "GET") {
 if (preg_match("#^/api/games/(\d+)/place/?$#", $path, $m) && $method === "POST") {
     $gameId = (int)$m[1];
     $body = json_decode(file_get_contents("php://input"), true) ?? [];
+    // ✅ FIX 1: Validate input BEFORE the foreach loop
+    if (!isset($body["ships"]) || !is_array($body["ships"])) {
+        send_error("bad_request", "Invalid ships payload", 400);
+    }
+    
     $playerId = (int)($body["player_id"] ?? 0);
 
     $pdo->beginTransaction();
@@ -128,6 +137,8 @@ if (preg_match("#^/api/games/(\d+)/place/?$#", $path, $m) && $method === "POST")
 
     // 2. insert ships
     foreach ($body["ships"] as $s) {
+        if (!isset($s["row"]) || !isset($s["col"])) continue;
+        
         $pdo->prepare("INSERT INTO ships (game_id, player_id, row, col) VALUES (?, ?, ?, ?)")
         ->execute([$gameId, $playerId, (int)$s["row"], (int)$s["col"]]);
     }
@@ -154,6 +165,7 @@ if (preg_match("#^/api/games/(\d+)/place/?$#", $path, $m) && $method === "POST")
 
     $pdo->commit();
     send_json(["status" => "placed"]);
+    
 } // <--- Added missing brace
 
 // POST /api/games/{id}/fire

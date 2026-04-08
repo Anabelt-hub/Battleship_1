@@ -67,30 +67,40 @@ async function setupCPUOpponent(currentGId) {
     const cpuRes = await fetch('/api/players', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: "Borg_Cube" }) 
+        body: JSON.stringify({ username: "Borg_Cube" }) // CHANGED: Removed space for spec compliance 
     });
-    const cpuId = (await cpuRes.json()).player_id;
+    const cpuData = await cpuRes.json();
+    const cpuId = cpuData.player_id;
+
     localStorage.setItem('cpuPlayerId', cpuId); 
 
+    // CPU joins the game
     await fetch(`/api/games/${currentGId}/join`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ player_id: cpuId })
     });
 
+    // CPU MUST place ships to trigger the 'playing' state 
+    const randomShips = generateRandomShips(); 
     await fetch(`/api/games/${currentGId}/place`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ player_id: cpuId, ships: generateRandomShips() })
+        body: JSON.stringify({ 
+            player_id: cpuId, 
+            ships: randomShips 
+        })
     });
 }
 
 async function pollForActivation() {
     const res = await fetch(`/api/games/${gameId}`);
     const data = await res.json();
+
+    // UPDATE: V2.3 spec uses "playing", ensure your JS matches 
     if (data.status === "playing") {
         gameStatus = "playing";
-        setStatus("Sensors Active. Fire when ready!");
+        setStatus("Sensors Active. Enemy fleet detected. Fire when ready!");
         renderBattleBoards();
     } else {
         setTimeout(pollForActivation, 2000);

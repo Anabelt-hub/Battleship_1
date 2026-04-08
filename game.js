@@ -28,135 +28,68 @@ function generateRandomShips() {
         [{row: startRow, col: startCol}, {row: startRow, col: startCol + 1}, {row: startRow, col: startCol + 2}];
 }
 
-// Create or retrieve a player by username — handles 409 (duplicate) by fetching the existing id
-async function getOrCreatePlayer(username) {
-    const res = await fetch('/api/players', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username })
-    });
-    const data = await res.json();
-    if (data.player_id) return data.player_id;
-    // 409 conflict means username exists — fetch existing player via stats to get id
-    // We store a unique suffix per session so each "New Mission" gets fresh players
-    return null;
-}
-
 async function startNewMission() {
-    // Use a unique username per session so duplicates never occur
-    const sessionId = Date.now();
-    const humanUsername = `Captain_${sessionId}`;
-    const cpuUsername   = `Borg_${sessionId}`;
-
-    // Create human player
     const pRes = await fetch('/api/players', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: humanUsername })
+        body: JSON.stringify({ username: "Captain Gabbie" })
     });
     const pData = await pRes.json();
     playerId = pData.player_id;
 
-    if (!playerId) {
-        setStatus("Error creating player. Please try again.");
-        return;
-    }
-
-    // Create game
     const gRes = await fetch('/api/games', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ creator_id: playerId, grid_size: 10, max_players: 2 })
+        body: JSON.stringify({ grid_size: 10 })
     });
     const gData = await gRes.json();
     gameId = gData.game_id;
 
-    if (!gameId) {
-        setStatus("Error creating game. Please try again.");
-        return;
-    }
-
     localStorage.setItem('currentPlayerId', playerId);
     localStorage.setItem('currentGameId', gameId);
 
-    // Human player joins
     await fetch(`/api/games/${gameId}/join`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ player_id: playerId })
     });
 
-    // Setup CPU opponent (always unique username, always fresh)
-    await setupCPUOpponent(gameId, cpuUsername);
+    await setupCPUOpponent(gameId); 
 
     isPlacementMode = true;
     selectedShips = [];
     gameStatus = "waiting_setup";
-    if (btnConfirmPlacement) btnConfirmPlacement.disabled = true;
-    setStatus("Placement Mode: Select 3 sectors, then click Confirm Ship Positions.");
+    setStatus("Placement Mode: Select 3 sectors, then click Confirm.");
     renderPlacementBoard();
 }
 
-async function setupCPUOpponent(currentGId, cpuUsername) {
-    // Create CPU player with unique username
+async function setupCPUOpponent(currentGId) {
     const cpuRes = await fetch('/api/players', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: cpuUsername })
+        body: JSON.stringify({ username: "Borg Cube" })
     });
-    const cpuData = await cpuRes.json();
-    const cpuId = cpuData.player_id;
+    const cpuId = (await cpuRes.json()).player_id;
+    localStorage.setItem('cpuPlayerId', cpuId); 
 
-    if (!cpuId) {
-        console.error("Failed to create CPU player:", cpuData);
-        return;
-    }
-
-    localStorage.setItem('cpuPlayerId', cpuId);
-
-    // CPU joins the game
-    const joinRes = await fetch(`/api/games/${currentGId}/join`, {
+    await fetch(`/api/games/${currentGId}/join`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ player_id: cpuId })
     });
-    if (!joinRes.ok) {
-        console.error("CPU join failed:", await joinRes.json());
-        return;
-    }
 
-    // CPU places ships — this is done via test endpoint for determinism
-    const randomShips = generateRandomShips();
     await fetch(`/api/test/games/${currentGId}/ships`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-Test-Password': 'clemson-test-2026' },
-        body: JSON.stringify({ player_id: cpuId, ships: randomShips })
+        body: JSON.stringify({ player_id: cpuId, ships: generateRandomShips() })
     });
 }
 
-async function pollForActivation() {
-    const res = await fetch(`/api/games/${gameId}`);
-    const data = await res.json();
-
-    // UPDATE: V2.3 spec uses "playing", ensure your JS matches 
-    if (data.status === "playing") {
-        gameStatus = "playing";
-        setStatus("Sensors Active. Enemy fleet detected. Fire when ready!");
-        renderBattleBoards();
-    } else {
-        setTimeout(pollForActivation, 2000);
-    }
-}
-
 async function submitPlacement() {
-    if (selectedShips.length !== 3) {
-        setStatus("Select exactly 3 sectors first.");
-        return;
-    }
+    if (selectedShips.length !== 3) return alert("Select 3 sectors.");
     const currentGId = localStorage.getItem('currentGameId');
     const currentPId = localStorage.getItem('currentPlayerId');
 
-    setStatus("Deploying fleet...");
     const res = await fetch(`/api/games/${currentGId}/place`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -167,12 +100,19 @@ async function submitPlacement() {
         isPlacementMode = false;
         if (btnConfirmPlacement) btnConfirmPlacement.disabled = true;
         setStatus("Fleet deployed. Battle stations!");
-        
-        // IMMEDIATE CHECK: Force the transition check right now
-        await pollForActivation(); 
+        pollForActivation();
+    }
+}
+
+async function pollForActivation() {
+    const res = await fetch(`/api/games/${gameId}`);
+    const data = await res.json();
+    if (data.status === "playing") {
+        gameStatus = "playing";
+        setStatus("Sensors Active. Enemy fleet detected. Fire when ready!");
+        renderBattleBoards();
     } else {
-        const err = await res.json();
-        setStatus("Placement failed: " + (err.message || err.error));
+        setTimeout(pollForActivation, 2000);
     }
 }
 
@@ -217,88 +157,40 @@ function renderBattleBoards() {
 
 async function firePhasers(r, c, cell) {
     if (gameStatus !== "playing") return;
-    cell.onclick = null; // prevent double-clicking
-
     const res = await fetch(`/api/games/${gameId}/fire`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ player_id: playerId, row: r, col: c })
     });
-
-    if (!res.ok) {
-        const err = await res.json();
-        setStatus("Fire failed: " + (err.message || err.error));
-        cell.onclick = () => firePhasers(r, c, cell); // re-enable
-        return;
-    }
-
     const data = await res.json();
     cell.classList.add(data.result === "hit" ? "hit" : "miss");
-
+    setStatus(data.result === "hit" ? "Direct hit!" : "Phasers missed.");
     if (data.game_status === "finished") {
         gameStatus = "finished";
-        setStatus(`🎉 VICTORY! Direct hit at ${String.fromCharCode(65+c)}${r+1}! Enemy fleet neutralized!`);
-        return;
+        alert("🎉 VICTORY! Enemy fleet neutralized.");
+    } else {
+        setTimeout(cpuTurn, 1000); 
     }
-
-    setStatus(data.result === "hit"
-        ? `Direct hit at ${String.fromCharCode(65+c)}${r+1}! Enemy reeling...`
-        : `Phasers missed at ${String.fromCharCode(65+c)}${r+1}. Borg evading...`);
-
-    if (data.next_player_id !== playerId) setTimeout(cpuTurn, 1000);
 }
 
 async function cpuTurn() {
     if (gameStatus !== "playing") return;
     const cpuId = parseInt(localStorage.getItem('cpuPlayerId'));
-
-    // Pick a random cell that hasn't been fired at yet
-    let r, c, attempts = 0;
-    do {
-        r = Math.floor(Math.random() * SIZE);
-        c = Math.floor(Math.random() * SIZE);
-        attempts++;
-    } while (attempts < 50 && playerBoardEl.getElementsByClassName("cell")[r * SIZE + c]?.classList.contains("hit") ||
-             playerBoardEl.getElementsByClassName("cell")[r * SIZE + c]?.classList.contains("miss"));
-
+    const r = Math.floor(Math.random() * SIZE), c = Math.floor(Math.random() * SIZE);
     const res = await fetch(`/api/games/${gameId}/fire`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ player_id: cpuId, row: r, col: c })
     });
-
-    if (!res.ok) {
-        // If it was a duplicate shot, just try again
-        const err = await res.json();
-        if (res.status === 409) { setTimeout(cpuTurn, 500); return; }
-        return;
-    }
-
     const data = await res.json();
     const target = playerBoardEl.getElementsByClassName("cell")[r * SIZE + c];
     if (target) target.classList.add(data.result === "hit" ? "hit" : "miss");
-
     if (data.game_status === "finished") {
         gameStatus = "finished";
-        setStatus("💀 DEFEAT! The Borg Cube has destroyed the Federation fleet.");
-        return;
+        alert("💀 GAME OVER: You have been destroyed.");
     }
-
-    setStatus(data.result === "hit"
-        ? `⚠️ Borg Strike! Direct hit at ${String.fromCharCode(65+c)}${r+1}!`
-        : `Borg phasers missed at ${String.fromCharCode(65+c)}${r+1}.`);
 }
 
 function setStatus(msg) {
     if (statusEl) statusEl.textContent = msg;
-    const logEl = document.getElementById("log");
-    if (logEl) {
-        const entry = document.createElement("div");
-        entry.className = "log-entry";
-        const now = new Date();
-        const t = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-        entry.innerHTML = `<span class="muted">[${t}]</span> ${msg}`;
-        logEl.appendChild(entry);
-        logEl.scrollTop = logEl.scrollHeight;
-    }
 }

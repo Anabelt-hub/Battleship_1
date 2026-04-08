@@ -142,9 +142,31 @@ if (preg_match("#^/api/test/games/(\d+)/ships/?$#", $path, $m) && $method === "P
     $gameId = (int)$m[1];
     $body = json_decode(file_get_contents("php://input"), true) ?? [];
     $pId = (int)$body["player_id"];
+
+    $pdo->beginTransaction();
+    
+    // Clear any existing ships for this player and insert new ones
+    $pdo->prepare("DELETE FROM ships WHERE game_id = ? AND player_id = ?")->execute([$gameId, $pId]);
     foreach ($body["ships"] as $s) {
-        $pdo->prepare("INSERT INTO ships (game_id, player_id, row, col) VALUES (?, ?, ?, ?)")->execute([$gameId, $pId, $s["row"], $s["col"]]);
+        $pdo->prepare("INSERT INTO ships (game_id, player_id, row, col) VALUES (?, ?, ?, ?)")
+            ->execute([$gameId, $pId, (int)$s["row"], (int)$s["col"]]);
     }
+
+    // THE CRITICAL ADDITION: Check if both players have now placed ships
+    $stmt = $pdo->prepare("SELECT COUNT(DISTINCT player_id) as c FROM ships WHERE game_id = ?");
+    $stmt->execute([$gameId]);
+    
+    if ((int)$stmt->fetch()["c"] >= 2) {
+        // Automatically start the game and assign the first turn
+        $first = $pdo->prepare("SELECT player_id FROM game_players WHERE game_id = ? ORDER BY player_id ASC LIMIT 1");
+        $first->execute([$gameId]);
+        $fp = (int)$first->fetch()["player_id"];
+        
+        $pdo->prepare("UPDATE games SET status = 'playing', current_turn_player_id = ? WHERE game_id = ?")
+            ->execute([$fp, $gameId]);
+    }
+
+    $pdo->commit();
     send_json(["status" => "ships placed"]);
 }
 

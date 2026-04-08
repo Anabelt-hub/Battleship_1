@@ -514,28 +514,36 @@ if (preg_match("#^/api/games/(\d+)/place/?$#", $path, $m) && $method === "POST")
     if (!$g) send_error("not_found", "Game not found", 404);
 
     if ($g["status"] !== "waiting_setup") {
-        send_error("conflict", "Ships already placed for this game", 409);
+        send_error("conflict", "Ships already placed or game already started", 409);
     }
 
     $pdo->beginTransaction();
+    
+    // Ensure player is in the game_players table
+    $chkJoin = $pdo->prepare("SELECT 1 FROM game_players WHERE game_id = ? AND player_id = ?");
+    $chkJoin->execute([$gameId, $playerId]);
+    if (!$chkJoin->fetch()) {
+        $pdo->prepare("INSERT INTO game_players (game_id, player_id) VALUES (?, ?)")->execute([$gameId, $playerId]);
+    }
+
     foreach ($ships as $s) {
         $pdo->prepare("INSERT INTO ships (game_id, player_id, row, col) VALUES (?, ?, ?, ?)")
             ->execute([$gameId, $playerId, (int)$s["row"], (int)$s["col"]]);
     }
 
-    // CHECK IF THIS COMPLETES THE SETUP
+    // NEW: CHECK IF THIS COMPLETES THE SETUP
     $stmtC = $pdo->prepare("SELECT COUNT(DISTINCT player_id) AS cnt FROM ships WHERE game_id = ?");
     $stmtC->execute([$gameId]);
     $placed = (int)$stmtC->fetch()["cnt"];
     $maxP = (int)$g["max_players"];
 
     if ($placed >= $maxP) {
-        // Find the first player who joined to set the turn
+        // Find the first player who joined to set the initial turn
         $stmtF = $pdo->prepare("SELECT player_id FROM game_players WHERE game_id = ? ORDER BY joined_at ASC, player_id ASC LIMIT 1");
         $stmtF->execute([$gameId]);
         $first = (int)$stmtF->fetch()["player_id"];
 
-        // FORCE THE TRANSITION
+        // ACTIVATE GAME
         $pdo->prepare("UPDATE games SET status = 'playing', current_turn_player_id = ? WHERE game_id = ?")
             ->execute([$first, $gameId]);
     }

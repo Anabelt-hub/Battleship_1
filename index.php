@@ -508,36 +508,40 @@ if (preg_match("#^/api/test/games/(\d+)/ships/?$#", $path, $m) && $method === "P
     $body   = json_decode(file_get_contents("php://input"), true) ?? [];
     $pId    = (int)($body["player_id"] ?? 0);
 
-    // ... (keep your existing game existence and player join checks) ...
+    $stmt = $pdo->prepare("SELECT 1 FROM games WHERE game_id = ?");
+    $stmt->execute([$gameId]);
+    if (!$stmt->fetch()) send_error("not_found", "Game not found", 404);
 
     $pdo->beginTransaction();
-    
-    // Clear old ships and insert new ones
+    // 1. Ensure CPU is in game_players table
+    $chk = $pdo->prepare("SELECT 1 FROM game_players WHERE game_id = ? AND player_id = ?");
+    $chk->execute([$gameId, $pId]);
+    if (!$chk->fetch()) {
+        $pdo->prepare("INSERT INTO game_players (game_id, player_id) VALUES (?, ?)")->execute([$gameId, $pId]);
+    }
+
+    // 2. Insert the ships
     $pdo->prepare("DELETE FROM ships WHERE game_id = ? AND player_id = ?")->execute([$gameId, $pId]);
     foreach ($body["ships"] as $s) {
         $pdo->prepare("INSERT INTO ships (game_id, player_id, row, col) VALUES (?, ?, ?, ?)")
             ->execute([$gameId, $pId, (int)$s["row"], (int)$s["col"]]);
     }
 
-    // NEW: Check if this placement should start the game
-    $stmtG = $pdo->prepare("SELECT max_players, status FROM games WHERE game_id = ?");
-    $stmtG->execute([$gameId]);
-    $g = $stmtG->fetch();
-
-    $stmtC = $pdo->prepare("SELECT COUNT(DISTINCT player_id) as cnt FROM ships WHERE game_id = ?");
-    $stmtC->execute([$gameId]);
-    $placed = (int)$stmtC->fetch()["cnt"];
-
-    if ($placed >= (int)$g["max_players"] && $g["status"] === 'waiting_setup') {
-        // Pick the first player who joined to start
-        $stmtF = $pdo->prepare("SELECT player_id FROM game_players WHERE game_id = ? ORDER BY joined_at ASC, player_id ASC LIMIT 1");
-        $stmtF->execute([$gameId]);
-        $firstId = (int)$stmtF->fetch()["player_id"];
+    // 3. TRIGGER GAME START
+    // Check if both human and CPU have now placed ships
+    $cnt = $pdo->prepare("SELECT COUNT(DISTINCT player_id) AS c FROM ships WHERE game_id = ?");
+    $cnt->execute([$gameId]);
+    
+    if ((int)$cnt->fetch()["c"] >= 2) {
+        // Set the first player who joined as the starting turn
+        $first = $pdo->prepare("SELECT player_id FROM game_players WHERE game_id = ? ORDER BY joined_at ASC, player_id ASC LIMIT 1");
+        $first->execute([$gameId]);
+        $fp = (int)$first->fetch()["player_id"];
         
-        $pdo->prepare("UPDATE games SET status = 'playing', current_turn_player_id = ? WHERE game_id = ?")
-            ->execute([$firstId, $gameId]);
+        $pdo->prepare("UPDATE games SET status = 'playing', current_turn_player_id = ? WHERE game_id = ? AND status = 'waiting_setup'")
+            ->execute([$fp, $gameId]);
     }
-
+    
     $pdo->commit();
     send_json(["status" => "ships placed"]);
 }

@@ -94,7 +94,13 @@ if (preg_match("#^/api/games/(\d+)/?$#", $path, $m) && $method === "GET") {
     $stmt = $pdo->prepare("SELECT * FROM games WHERE game_id = ?");
     $stmt->execute([$gameId]);
     $g = $stmt->fetch();
-    if (!$g) send_error("not_found", "Game not found", 404);
+
+    if (!$g) {
+        send_error("not_found", "Game $gameId not found", 404);
+    }
+
+    // Safely check if the key exists before using it to avoid the Line 107 warning
+    $turnPlayerId = array_key_exists("current_turn_player_id", $g) ? $g["current_turn_player_id"] : null;
 
     $stmtP = $pdo->prepare("SELECT player_id FROM game_players WHERE game_id = ?");
     $stmtP->execute([$gameId]);
@@ -104,7 +110,15 @@ if (preg_match("#^/api/games/(\d+)/?$#", $path, $m) && $method === "GET") {
         $stmtS->execute([$gameId, $rowP["player_id"]]);
         $players[] = ["player_id" => (int)$rowP["player_id"], "ships_remaining" => (int)$stmtS->fetch()["rem"]];
     }
-    send_json(["game_id" => (int)$g["game_id"], "grid_size" => (int)$g["grid_size"], "status" => $g["status"], "players" => $players, "current_turn_player_id" => $g["current_turn_player_id"] ? (int)$g["current_turn_player_id"] : null]);
+
+    send_json([
+        "game_id" => (int)$g["game_id"],
+        "grid_size" => (int)$g["grid_size"],
+        "status" => $g["status"],
+        "players" => $players,
+        "current_turn_player_id" => $turnPlayerId ? (int)$turnPlayerId : null,
+        "total_moves" => 0
+    ]);
 }
 
 // POST /api/games/{id}/place (INSTANT ACTIVATION)

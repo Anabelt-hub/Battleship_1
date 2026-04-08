@@ -166,11 +166,13 @@ async function submitPlacement() {
     if (res.ok) {
         isPlacementMode = false;
         if (btnConfirmPlacement) btnConfirmPlacement.disabled = true;
-        setStatus("Fleet deployed. Waiting for battle to begin...");
-        pollForActivation();
+        setStatus("Fleet deployed. Battle stations!");
+        
+        // IMMEDIATE POLL: Don't wait 2 seconds for the first check
+        await pollForActivation(); 
     } else {
         const err = await res.json();
-        setStatus("Placement failed: " + (err.message || err.error || "Unknown error"));
+        setStatus("Placement failed: " + (err.message || err.error));
     }
 }
 

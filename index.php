@@ -47,8 +47,14 @@ $path = parse_url($_SERVER["REQUEST_URI"], PHP_URL_PATH);
 $path = str_replace("/index.php", "", $path);
 $method = $_SERVER["REQUEST_METHOD"];
 
-// Root Metadata
-if ($path === "/" && $method === "GET") {
+// CHANGE THIS: Check for the UI first, then the API metadata
+if ($path === "/" || $path === "" || $path === "/index.php") { 
+    include_once("index.html"); 
+    exit; 
+}
+
+// API Metadata endpoint (Move this below the UI check)
+if ($path === "/api" && $method === "GET") {
     send_json([
         "name" => "Battleship API",
         "version" => "2.3.0",
@@ -56,11 +62,6 @@ if ($path === "/" && $method === "GET") {
         "environment" => "production",
         "test_mode" => true
     ]);
-}
-
-// Version
-if ($path === "/api/version" && $method === "GET") {
-    send_json(["api_version" => "2.3.0", "spec_version" => "2.3"]);
 }
 
 // --- 4. PRODUCTION ENDPOINTS ---

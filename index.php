@@ -121,28 +121,35 @@ if (preg_match("#^/api/games/(\d+)/?$#", $path, $m) && $method === "GET") {
     ]);
 }
 
-// POST /api/games/{id}/place (INSTANT ACTIVATION)
+// POST /api/games/{id}/place (Human Player Placement)
 if (preg_match("#^/api/games/(\d+)/place/?$#", $path, $m) && $method === "POST") {
     $gameId = (int)$m[1];
     $body = json_decode(file_get_contents("php://input"), true) ?? [];
     
-    if (!isset($body["ships"]) || !is_array($body["ships"])) send_error("bad_request", "Invalid ships payload");
+    if (!isset($body["ships"]) || !is_array($body["ships"])) {
+        send_error("bad_request", "Invalid ships payload");
+    }
     
     $playerId = (int)($body["player_id"] ?? 0);
+    
     $pdo->beginTransaction();
+    
+    // 1. Clear and insert human ships
     $pdo->prepare("DELETE FROM ships WHERE game_id = ? AND player_id = ?")->execute([$gameId, $playerId]);
     foreach ($body["ships"] as $s) {
-        $pdo->prepare("INSERT INTO ships (game_id, player_id, row, col) VALUES (?, ?, ?, ?)")->execute([$gameId, $playerId, (int)$s["row"], (int)$s["col"]]);
+        $pdo->prepare("INSERT INTO ships (game_id, player_id, row, col) VALUES (?, ?, ?, ?)")
+            ->execute([$gameId, $playerId, (int)$s["row"], (int)$s["col"]]);
     }
     
-    $stmtC = $pdo->prepare("SELECT COUNT(DISTINCT player_id) as c FROM ships WHERE game_id = ?");
-    $stmtC->execute([$gameId]);
-    if ((int)$stmtC->fetch()["c"] >= 2) {
-        $first = $pdo->prepare("SELECT player_id FROM game_players WHERE game_id = ? ORDER BY player_id ASC LIMIT 1");
-        $first->execute([$gameId]);
-        $fp = (int)$first->fetch()["player_id"];
-        $pdo->prepare("UPDATE games SET status = 'playing', current_turn_player_id = ? WHERE game_id = ?")->execute([$fp, $gameId]);
-    }
+    // 2. FORCE GAME START
+    // Since the CPU is automated, we don't wait for a count. We just start.
+    $first = $pdo->prepare("SELECT player_id FROM game_players WHERE game_id = ? ORDER BY player_id ASC LIMIT 1");
+    $first->execute([$gameId]);
+    $fp = (int)$first->fetch()["player_id"];
+    
+    $pdo->prepare("UPDATE games SET status = 'playing', current_turn_player_id = ? WHERE game_id = ?")
+        ->execute([$fp, $gameId]);
+    
     $pdo->commit();
     send_json(["status" => "placed"]);
 }

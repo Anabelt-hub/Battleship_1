@@ -7,34 +7,38 @@ This system is a persistent, multiplayer client/server Battleship platform desig
 # Architecture Summary
 The system utilizes a web-based architecture consisting of a frontend interface and backend service scripts.
 
-    Frontend: A vanilla JavaScript application managing game state, user interactions, and board rendering.
+        Frontend: A vanilla JavaScript application managing game state, user interactions, and Starfleet-themed board rendering.
 
-    Backend: PHP-based API endpoints that handle data persistence and game logic.
+        Backend: PHP-based API endpoints that handle relational data persistence and core game logic.
 
-    Data Persistence: Uses JSON-based storage for game states and scoreboards to ensure data persists across sessions.
+        Data Persistence: Migrated from JSON-based storage to a PostgreSQL relational database to manage persistent players, games, ships, and move history.
 
-    Security: A dedicated Test Mode is implemented, requiring a specific password header for administrative actions.
-
+        Security: A dedicated Test Mode is implemented, requiring the X-Test-Password header for administrative and debugging actions.
+        
 # API Description
-The system communicates via JSON-based endpoints categorized into production and testing functions.
+The system communicates via JSON-based endpoints categorized into production and testing functions following the v2.3 specification.
 
 **Production Endpoints**
 
-    Score Management: score_api.php provides actions to recordWin, recordLoss, recordShot, and get global statistics.
+    Player Management: POST /api/players handles registration and retrieval of unique player IDs.
 
-    Game Logic: The frontend communicates with the backend to synchronize turns and battle history.
+    Game Management: POST /api/games creates new matches; POST /api/games/{id}/join allows players to enter the lobby.
+
+    Combat Logic: POST /api/games/{id}/place manages ship deployment, while POST /api/games/{id}/fire processes shots and turn transitions.
+
+    State Synchronization: GET /api/games/{id} provides real-time updates on game status and player ship counts.
+    
 
 **Test Mode Endpoints**
-Accessible only when the X-Test-Mode header matches the defined $TEST_PASSWORD.
 
-    POST ?action=reset: Reinitializes the game board and sets the turn to player one.
+Accessible only with a valid X-Test-Password header.
 
-    GET ?action=reveal: Returns the current board layout and turn status for verification.
+    POST /api/test/games/{id}/restart: Reinitializes the game board and clears moves for testing.
 
-    POST ?action=placeShips: Allows for deterministic ship placement using specific grid coordinates.
+    GET /api/test/games/{id}/board/{player_id}: Reveals specific player ship positions.
 
-    POST ?action=forceTurn: Manually overrides the current player turn.
-
+    POST /api/test/games/{id}/ships: Allows for deterministic ship placement, bypassing standard placement restrictions for automated testing.
+    
 # Team Member Names
 Gabbie Borjas
 
@@ -50,10 +54,10 @@ Gemini
 # Major Roles
 **Human Engineers**
 
-    Gabbie Borjas (Front-end Coding): Responsible for the visual layout, creating an intuitive user interface, and processing user actions.
+    Gabbie Borjas: Responsible for the system architecture, including the visual Starfleet layout, PostgreSQL database schema design, and the implementation of all production and test API endpoints.
 
-    Anabel Thompson (Backend Coding): Responsible for application logic, storing/retrieving persistent data, creating API endpoints, and protecting user data.
-
+    Anabel Thompson: Responsible for the high-level application logic and helped ensure data protection and API contract consistency during Phase 1.
+    
 **AI System**
 
     Assistant: Used strategically for code speed, perfecting existing code, and generating test cases.

@@ -14,10 +14,6 @@ $user = getenv('DB_USER'); $pass = getenv('DB_PASS');
 $port = getenv('DB_PORT') ?: "5432";
 $TEST_PASSWORD = "clemson-test-2026";
 
-// Grid size constraints
-define('MIN_GRID_SIZE', 5);
-define('MAX_GRID_SIZE', 26);
-
 try {
     $pdo = new PDO("pgsql:host=$host;port=$port;dbname=$db;sslmode=require", $user, $pass, [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
@@ -51,15 +47,11 @@ $method = $_SERVER["REQUEST_METHOD"];
 
 if ($path === "/" || $path === "" || $path === "/index.php") { include_once("index.html"); exit; }
 
-// ── Metadata ──────────────────────────────────────────────────────────────────
+// Metadata
 if ($path === "/api" && $method === "GET") {
     send_json(["name" => "Battleship API", "version" => "2.3.0", "spec_version" => "2.3", "environment" => "production", "test_mode" => true]);
 }
 
-// ── Health ────────────────────────────────────────────────────────────────────
-if ($path === "/api/health" && $method === "GET") {
-    send_json(["status" => "ok"]);
-}
 
 // ── POST /api/players ─────────────────────────────────────────────────────────
 if ($path === "/api/players" && $method === "POST") {

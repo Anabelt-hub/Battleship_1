@@ -119,21 +119,34 @@ if (preg_match("#^api/games/(\d+)$#", $path, $m) && $method === "GET") {
     ]);
 }
 
-// POST /api/games/{id}/place (FORCE START)
-if (preg_match("#^api/games/(\d+)/place$#", $path, $m) && $method === "POST") {
+// POST /api/games/{id}/place (Force Start Logic)
+if (preg_match("#api/games/(\d+)/place/?$#", $path, $m) && $method === "POST") {
     $gameId = (int)$m[1];
     $body = json_decode(file_get_contents("php://input"), true) ?? [];
+    
+    if (!isset($body["ships"]) || !is_array($body["ships"])) {
+        send_error("bad_request", "Invalid ships payload", 400);
+    }
+    
     $playerId = (int)($body["player_id"] ?? 0);
     
     $pdo->beginTransaction();
+    
+    // Clear and insert human ships
     $pdo->prepare("DELETE FROM ships WHERE game_id = ? AND player_id = ?")->execute([$gameId, $playerId]);
     foreach ($body["ships"] as $s) {
         $pdo->prepare("INSERT INTO ships (game_id, player_id, row, col) VALUES (?, ?, ?, ?)")
             ->execute([$gameId, $playerId, (int)$s["row"], (int)$s["col"]]);
     }
-    // Set status to 'playing' immediately
+    
+    // FORCE START: Get the first player and set status to 'playing'
+    $stmtF = $pdo->prepare("SELECT player_id FROM game_players WHERE game_id = ? ORDER BY player_id ASC LIMIT 1");
+    $stmtF->execute([$gameId]);
+    $fp = (int)($stmtF->fetch()["player_id"] ?? $playerId);
+    
     $pdo->prepare("UPDATE games SET status = 'playing', current_turn_player_id = ? WHERE game_id = ?")
-        ->execute([$playerId, $gameId]);
+        ->execute([$fp, $gameId]);
+    
     $pdo->commit();
     send_json(["status" => "placed"]);
 }

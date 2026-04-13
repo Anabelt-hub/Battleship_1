@@ -173,6 +173,7 @@ if (preg_match("#^api/games/(\d+)$#", $path, $m) && $method === "GET") {
     ]);
 }
 
+// POST /api/games/{id}/place (Fail-Safe Instant Activation)
 if (preg_match("#^api/games/(\d+)/place$#", $path, $m) && $method === "POST") {
     $gameId = (int)$m[1];
     $body = json_decode(file_get_contents("php://input"), true) ?? [];
@@ -180,17 +181,20 @@ if (preg_match("#^api/games/(\d+)/place$#", $path, $m) && $method === "POST") {
     
     $playerId = (int)($body["player_id"] ?? 0);
     $pdo->beginTransaction();
+    
+    // Clear old data and insert new human ships
     $pdo->prepare("DELETE FROM ships WHERE game_id = ? AND player_id = ?")->execute([$gameId, $playerId]);
     foreach ($body["ships"] as $s) {
         $pdo->prepare("INSERT INTO ships (game_id, player_id, row, col) VALUES (?, ?, ?, ?)")
             ->execute([$gameId, $playerId, (int)$s["row"], (int)$s["col"]]);
     }
     
+    // FORCE START: Immediately assign the first turn and set status to 'playing'
     $stmtF = $pdo->prepare("SELECT player_id FROM game_players WHERE game_id = ? ORDER BY player_id ASC LIMIT 1");
     $stmtF->execute([$gameId]);
     $fp = (int)($stmtF->fetch()["player_id"] ?? $playerId);
     
-    $pdo->prepare("UPDATE games SET status = 'playing', current_turn_player_id = ? WHERE game_id = ? AND status = 'waiting_setup'")
+    $pdo->prepare("UPDATE games SET status = 'playing', current_turn_player_id = ? WHERE game_id = ?")
         ->execute([$fp, $gameId]);
     
     $pdo->commit();

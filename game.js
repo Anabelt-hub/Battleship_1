@@ -249,13 +249,14 @@ const btnReveal = document.getElementById("btnReveal");
 
 if (btnReveal) {
     btnReveal.addEventListener("click", async () => {
+        // Ensure we have an active mission
         if (!gameId) return;
         
         const cpuId = localStorage.getItem('cpuPlayerId');
         addToLog("Initiating long-range sensor sweep...", "muted");
 
         try {
-            // Fetch the CPU's ships from the test endpoint
+            // Fetch the CPU's ships from the authorized test endpoint
             const res = await fetch(`/api/test/games/${gameId}/board/${cpuId}`, {
                 method: 'GET',
                 headers: { 'X-Test-Password': 'clemson-test-2026' }
@@ -265,17 +266,19 @@ if (btnReveal) {
             
             if (data.ships) {
                 addToLog("Sensors successful. Enemy positions highlighted.", "hit");
+                
                 // Highlight the ships on the CPU board
                 data.ships.forEach(ship => {
                     const cell = document.getElementById(`cpu-cell-${ship.row}-${ship.col}`);
+                    // Only highlight if the cell hasn't been fired upon yet
                     if (cell && !cell.classList.contains("hit") && !cell.classList.contains("miss")) {
                         cell.style.border = "2px solid #ffcc66"; // Starfleet ship accent color
-                        cell.style.boxShadow = "0 0 10px rgba(255, 204, 102, 0.5)";
+                        cell.style.boxShadow = "0 0 12px rgba(255, 204, 102, 0.6)";
                     }
                 });
             }
         } catch (err) {
-            addToLog("Sensor sweep failed: Interference detected.", "miss");
+            addToLog("Sensor sweep failed: Ion storm interference.", "miss");
         }
     });
 }

@@ -41,9 +41,8 @@ function check_test_auth($TEST_PASSWORD) {
     }
 }
 
-$path = parse_url($_SERVER["REQUEST_URI"], PHP_URL_PATH);
-$path = str_replace("/index.php", "", $path);
-$path = trim($path, "/");
+$path = trim(parse_url($_SERVER["REQUEST_URI"], PHP_URL_PATH), "/");
+$path = preg_replace('#^index\.php/?#', '', $path);
 $method = $_SERVER["REQUEST_METHOD"];
 
 if ($path === "" || $path === "index.html") { include_once("index.html"); exit; }
@@ -72,7 +71,7 @@ if ($path === "api/players" && $method === "POST") {
     $body = json_decode(file_get_contents("php://input"), true) ?? [];
     $username = trim($body["username"] ?? $body["playerName"] ?? "");
 
-    if (empty($username)) send_error("bad_request", "username required", 400);
+    if ($username === "") send_error("bad_request", "username required", 400);
     if (!preg_match("/^[A-Za-z0-9_ ]+$/", $username)) send_error("bad_request", "Invalid username", 400);
 
     $stmt = $pdo->prepare("SELECT player_id FROM players WHERE username = ?");
@@ -107,13 +106,13 @@ if (preg_match('#^api/players/(\d+)/stats$#', $path, $m) && $method === "GET") {
         "player_id" => $pId,
         "username" => $player["username"],
         "games_played" => $gp,
-        "games" => $gp, // Alias for T0091
+        "games" => $gp, 
         "wins" => $wins,
         "losses" => max(0, $gp - $wins),
         "total_shots" => (int)$moveRow["shots"],
-        "shots" => (int)$moveRow["shots"], // Alias for T0091
+        "shots" => (int)$moveRow["shots"],
         "total_hits" => (int)$moveRow["hits"],
-        "hits" => (int)$moveRow["hits"], // Alias for T0091
+        "hits" => (int)$moveRow["hits"],
         "accuracy" => $moveRow["shots"] > 0 ? round($moveRow["hits"] / $moveRow["shots"], 4) : 0.0
     ]);
 }
@@ -122,7 +121,7 @@ if (preg_match('#^api/players/(\d+)/stats$#', $path, $m) && $method === "GET") {
 if ($path === "api/games" && $method === "POST") {
     $body = json_decode(file_get_contents("php://input"), true) ?? [];
     $gridSize = (int)($body["grid_size"] ?? 10);
-    if ($gridSize < 5 || $gridSize > 20) send_error("bad_request", "Invalid grid size", 400); // Required by T0009
+    if ($gridSize < 5 || $gridSize > 20) send_error("bad_request", "Invalid grid size", 400);
 
     $stmt = $pdo->prepare("INSERT INTO games (grid_size, max_players, status) VALUES (?, 2, 'waiting_setup') RETURNING game_id");
     $stmt->execute([$gridSize]);
@@ -134,15 +133,15 @@ if (preg_match("#^api/games/(\d+)/join$#", $path, $m) && $method === "POST") {
     $body = json_decode(file_get_contents("php://input"), true) ?? [];
     $playerId = (int)($body["player_id"] ?? 0);
 
-    $stmt = $pdo->prepare("SELECT status, max_players FROM games WHERE game_id = ?");
+    $stmt = $pdo->prepare("SELECT status FROM games WHERE game_id = ?");
     $stmt->execute([$gameId]);
     $g = $stmt->fetch();
     if (!$g) send_error("not_found", "Game not found", 404);
-    if ($g["status"] !== "waiting_setup") send_error("conflict", "Game already started", 409);
+    if ($g["status"] !== "waiting_setup") send_error("conflict", "Game started", 409);
 
     $stmtDup = $pdo->prepare("SELECT 1 FROM game_players WHERE game_id = ? AND player_id = ?");
     $stmtDup->execute([$gameId, $playerId]);
-    if ($stmtDup->fetch()) send_error("conflict", "Player already in game", 409);
+    if ($stmtDup->fetch()) send_error("conflict", "Already joined", 409);
 
     $pdo->prepare("INSERT INTO game_players (game_id, player_id) VALUES (?, ?)")->execute([$gameId, $playerId]);
     send_json(["status" => "joined"]);
@@ -155,13 +154,14 @@ if (preg_match("#^api/games/(\d+)$#", $path, $m) && $method === "GET") {
     $g = $stmt->fetch();
     if (!$g) send_error("not_found", "Game not found", 404);
 
-    $stmtP = $pdo->prepare("SELECT player_id FROM game_players WHERE game_id = ?");
+    $stmtP = $pdo->prepare("SELECT player_id FROM game_players WHERE game_id = ? ORDER BY player_id ASC");
     $stmtP->execute([$gameId]);
     $players = [];
     foreach ($stmtP->fetchAll() as $rowP) {
+        $pid = (int)$rowP["player_id"];
         $stmtS = $pdo->prepare("SELECT COUNT(*) as rem FROM ships s WHERE game_id = ? AND player_id = ? AND NOT EXISTS (SELECT 1 FROM moves m WHERE m.game_id = s.game_id AND m.row = s.row AND m.col = s.col AND m.result = 'hit')");
-        $stmtS->execute([$gameId, $rowP["player_id"]]);
-        $players[] = ["player_id" => (int)$rowP["player_id"], "ships_remaining" => (int)$stmtS->fetch()["rem"]];
+        $stmtS->execute([$gameId, $pid]);
+        $players[] = ["player_id" => $pid, "ships_remaining" => (int)$stmtS->fetch()["rem"]];
     }
 
     send_json([
@@ -173,7 +173,7 @@ if (preg_match("#^api/games/(\d+)$#", $path, $m) && $method === "GET") {
     ]);
 }
 
-// POST /api/games/{id}/place (Fail-Safe Instant Activation)
+// POST /api/games/{id}/place (FAIL-SAFE INSTANT ACTIVATION)
 if (preg_match("#^api/games/(\d+)/place$#", $path, $m) && $method === "POST") {
     $gameId = (int)$m[1];
     $body = json_decode(file_get_contents("php://input"), true) ?? [];
@@ -181,15 +181,13 @@ if (preg_match("#^api/games/(\d+)/place$#", $path, $m) && $method === "POST") {
     
     $playerId = (int)($body["player_id"] ?? 0);
     $pdo->beginTransaction();
-    
-    // Clear old data and insert new human ships
     $pdo->prepare("DELETE FROM ships WHERE game_id = ? AND player_id = ?")->execute([$gameId, $playerId]);
     foreach ($body["ships"] as $s) {
         $pdo->prepare("INSERT INTO ships (game_id, player_id, row, col) VALUES (?, ?, ?, ?)")
             ->execute([$gameId, $playerId, (int)$s["row"], (int)$s["col"]]);
     }
     
-    // FORCE START: Immediately assign the first turn and set status to 'playing'
+    // Force transition to 'playing'
     $stmtF = $pdo->prepare("SELECT player_id FROM game_players WHERE game_id = ? ORDER BY player_id ASC LIMIT 1");
     $stmtF->execute([$gameId]);
     $fp = (int)($stmtF->fetch()["player_id"] ?? $playerId);
@@ -212,11 +210,11 @@ if (preg_match("#^api/games/(\d+)/fire$#", $path, $m) && $method === "POST") {
     $g = $stmt->fetch();
     if (!$g) send_error("not_found", "Game not found", 404);
     if ($g["status"] !== "playing") send_error("forbidden", "Not playing state", 403);
-    if ((int)$g["current_turn_player_id"] !== $playerId) send_error("forbidden", "Not your turn", 403); // Required by T0003
+    if ((int)$g["current_turn_player_id"] !== $playerId) send_error("forbidden", "Not your turn", 403);
 
     $stmtDup = $pdo->prepare("SELECT 1 FROM moves WHERE game_id = ? AND player_id = ? AND row = ? AND col = ?");
     $stmtDup->execute([$gameId, $playerId, $r, $c]);
-    if ($stmtDup->fetch()) send_error("conflict", "Already targeted", 409); // Required by T0004
+    if ($stmtDup->fetch()) send_error("conflict", "Already targeted", 409);
 
     $stmtH = $pdo->prepare("SELECT 1 FROM ships WHERE game_id = ? AND player_id != ? AND row = ? AND col = ?");
     $stmtH->execute([$gameId, $playerId, $r, $c]);
@@ -244,11 +242,11 @@ if (preg_match("#^api/games/(\d+)/fire$#", $path, $m) && $method === "POST") {
 
 // --- TEST MODE ---
 if (preg_match("#^api/test/games/(\d+)/restart$#", $path, $m) && $method === "POST") {
-    check_test_auth($TEST_PASSWORD); // Required by T0050
+    check_test_auth($TEST_PASSWORD);
     $gameId = (int)$m[1];
     $pdo->prepare("DELETE FROM ships WHERE game_id = ?")->execute([$gameId]);
     $pdo->prepare("DELETE FROM moves WHERE game_id = ?")->execute([$gameId]);
-    $pdo->prepare("UPDATE games SET status = 'waiting_setup', current_turn_player_id = null WHERE game_id = ?")->execute([$gameId]);
+    $pdo->prepare("UPDATE games SET status = 'waiting_setup', current_turn_player_id = null, winner_id = null WHERE game_id = ?")->execute([$gameId]);
     send_json(["status" => "reset"]);
 }
 

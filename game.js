@@ -481,7 +481,9 @@ async function firePhasers(row, col) {
             })
         });
 
-        const data = await safeJson(res);
+        // Using safeJson if you have it defined, otherwise use res.json()
+        const data = typeof safeJson === "function" ? await safeJson(res) : await res.json();
+        
         if (!res.ok) {
             throw new Error(data.message || "Could not fire.");
         }
@@ -494,22 +496,30 @@ async function firePhasers(row, col) {
             addToLog(`Tactical: Phasers fired at Sector ${row},${col} - MISS`, "miss");
         }
 
+        // Logic check for game completion
         if (data.game_status === "finished") {
             gameStatus = "finished";
             addToLog("VICTORY: Enemy fleet neutralized. Returning to Starbase.", "hit");
-            showEndMissionOverlay("win"); // Replaces the basic alert
+            showEndMissionOverlay("win"); 
+            return; // Stop execution so CPU doesn't try to fire after it's destroyed
         }
 
+        // Only trigger CPU turn if the game is still active
         setTimeout(cpuTurn, 700);
     } catch (err) {
         console.error(err);
-        setStatus(`Weapons error: ${err.message}`);
+        if (typeof setStatus === "function") setStatus(`Weapons error: ${err.message}`);
         addToLog(`Weapons error: ${err.message}`, "miss");
     }
 }
 
 async function cpuTurn() {
-    if (gameStatus !== "playing" || !cpuPlayerId) return;
+    // Ensure we don't act if game finished during the timeout
+    if (gameStatus !== "playing") return;
+    
+    // Fallback for cpuPlayerId if it's stored in localStorage
+    const activeCpuId = typeof cpuPlayerId !== 'undefined' ? cpuPlayerId : localStorage.getItem('cpuPlayerId');
+    if (!activeCpuId) return;
 
     let attempts = 0;
     let row = 0;
@@ -532,13 +542,14 @@ async function cpuTurn() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-                player_id: cpuPlayerId,
+                player_id: parseInt(activeCpuId),
                 row,
                 col
             })
         });
 
-        const data = await safeJson(res);
+        const data = typeof safeJson === "function" ? await safeJson(res) : await res.json();
+
         if (!res.ok) {
             throw new Error(data.message || "Enemy turn failed.");
         }
@@ -553,14 +564,15 @@ async function cpuTurn() {
             }
         }
 
+        // Logic check for mission failure
         if (data.game_status === "finished") {
             gameStatus = "finished";
             addToLog("CRITICAL: Hull integrity failing. Abandon ship!", "hit");
-            showEndMissionOverlay("lose"); // Replaces the basic alert
+            showEndMissionOverlay("lose");
         }
     } catch (err) {
         console.error(err);
-        setStatus(`Enemy action failed: ${err.message}`);
+        if (typeof setStatus === "function") setStatus(`Enemy action failed: ${err.message}`);
         addToLog(`Enemy action failed: ${err.message}`, "miss");
     }
 }
@@ -570,35 +582,39 @@ window.addEventListener("load", () => {
 });
 
 function showEndMissionOverlay(result) {
+    console.log("Mission Ending: Triggering Overlay...");
     const isWin = result === "win";
     const overlay = document.createElement("div");
+    overlay.id = "mission-overlay"; // ID for easy removal/debugging
     
-    // Starfleet-themed styling via JS for immediate deployment
     Object.assign(overlay.style, {
         position: "fixed",
-        top: "50%",
-        left: "50%",
-        transform: "translate(-50%, -50%)",
-        background: "rgba(13, 18, 34, 0.95)",
-        border: `2px solid ${isWin ? '#2ecc71' : '#ff5c5c'}`,
-        padding: "40px",
-        borderRadius: "8px",
-        textAlign: "center",
-        zIndex: "1000",
-        boxShadow: "0 0 30px rgba(0,0,0,0.5)",
-        backdropFilter: "blur(5px)"
+        top: "0",
+        left: "0",
+        width: "100%",
+        height: "100%",
+        background: "rgba(5, 7, 13, 0.92)", // Match --bg
+        display: "flex",
+        flexDirection: "column",
+        justifyContent: "center",
+        alignItems: "center",
+        zIndex: "9999",
+        backdropFilter: "blur(10px)"
     });
 
     overlay.innerHTML = `
-        <h1 style="color: ${isWin ? '#2ecc71' : '#ff5c5c'}; font-size: 2.5rem; margin-bottom: 10px;">
-            ${isWin ? "MISSION ACCOMPLISHED" : "MISSION FAILURE"}
-        </h1>
-        <p style="color: #eaf0ff; margin-bottom: 20px;">
-            ${isWin ? "The Borg Cube has been neutralized. Sector clear." : "Hull integrity compromised. All hands abandon ship."}
-        </p>
-        <button onclick="window.location.reload()" class="success" style="padding: 10px 20px; cursor: pointer;">
-            Return to Starbase
-        </button>
+        <div style="border: 2px solid ${isWin ? '#2ecc71' : '#ff5c5c'}; padding: 40px; border-radius: 10px; background: #0d1222; text-align: center;">
+            <h1 style="color: ${isWin ? '#2ecc71' : '#ff5c5c'}; font-size: 3rem; margin: 0;">
+                ${isWin ? "MISSION ACCOMPLISHED" : "MISSION FAILURE"}
+            </h1>
+            <p style="color: #eaf0ff; font-size: 1.2rem; margin: 20px 0;">
+                ${isWin ? "Borg Cube neutralized. The sector is secure." : "Tactical defeat. The Federation fleet has retreated."}
+            </p>
+            <button onclick="localStorage.clear(); window.location.reload();" 
+                    style="background: ${isWin ? '#2ecc71' : '#ff5c5c'}; color: white; border: none; padding: 15px 30px; font-size: 1rem; border-radius: 5px; cursor: pointer;">
+                Return to Starbase
+            </button>
+        </div>
     `;
 
     document.body.appendChild(overlay);

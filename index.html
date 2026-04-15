@@ -11,6 +11,16 @@
     .placement-active { cursor: crosshair; outline: 2px solid #2ecc71; }
     #btnConfirmPlacement:disabled { opacity: 0.5; cursor: not-allowed; }
     .hidden { display: none; }
+    
+    /* Ensure the side panel stacks correctly */
+    .side-panel {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    #stats-container {
+      min-height: 100px;
+    }
   </style>
 </head>
 <body>
@@ -29,8 +39,8 @@
       <button id="btnResume">Resume Mission</button>
       <button id="btnClearSave">Clear Save</button>
       <button id="btnReveal">Scan (Reveal)</button>
-      <button id="btnUndo" disabled>Undo Last Shot</button>
-      <button id="btnResetScore" class="danger">Reset Scoreboard</button>
+      <button id="btnUndo">Undo Selection</button>
+      <button id="btnReset" class="danger">Reset Simulation</button>
     </div>
   </header>
 
@@ -47,10 +57,19 @@
       <p class="hint">Click a sector to fire. Enemy ships are cloaked (unless you scan).</p>
     </section>
 
-    <section class="panel logpanel">
-      <h2>Captain’s Log</h2>
-      <div id="log" class="log" aria-label="Battle history log"></div>
-    </section>
+    <div class="side-panel">
+        <section class="panel">
+          <h2>Mission Intel</h2>
+          <div id="stats-container">
+            <p class="hint">Awaiting player identification...</p>
+          </div>
+        </section>
+
+        <section class="panel logpanel">
+          <h2>Captain’s Log</h2>
+          <div id="log" class="log" aria-label="Battle history log"></div>
+        </section>
+    </div>
   </main>
 
   <footer class="statusbar">

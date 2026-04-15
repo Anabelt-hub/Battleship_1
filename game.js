@@ -663,40 +663,42 @@ function showEndMissionOverlay(result) {
 }
 
 async function updateStatsBox(id = null) {
-    // 1. Prioritize the passed ID, then global, then localStorage
+    // 1. Resolve ID
     const targetId = id || playerId || localStorage.getItem("currentPlayerId");
-    
-    if (!targetId) {
-        console.log("Stats blocked: No player ID found yet.");
-        return;
-    }
+    console.log("Stats Request for ID:", targetId);
+
+    if (!targetId) return;
 
     try {
         const res = await fetch(`/api/players/${targetId}/stats`);
+        if (!res.ok) throw new Error("Server stats unreachable");
+        
         const stats = await res.json();
+        console.log("Stats Data Received:", stats);
 
         const statsBox = document.getElementById("stats-container");
-        if (!statsBox) return;
+        if (!statsBox) {
+            console.error("CRITICAL: #stats-container not found in HTML");
+            return;
+        }
 
-        const wins = stats.wins || 0;
-        const losses = stats.losses || 0;
-        const accuracy = stats.accuracy || 0;
-
+        // 2. FORCE RENDER: Overwrite 'Awaiting identification...'
         statsBox.innerHTML = `
-            <div class="stats-box" style="border: 1px solid #4a9eff; padding: 15px; background: rgba(13, 18, 34, 0.8); color: white; border-radius: 5px; font-family: monospace;">
-                <h3 style="color: #4a9eff; margin-top: 0; border-bottom: 1px solid #4a9eff;">PLAYER TACTICAL DATA</h3>
+            <div style="border: 1px solid #4a9eff; padding: 15px; background: rgba(13, 18, 34, 0.8); color: white; border-radius: 5px; font-family: monospace;">
+                <h3 style="color: #4a9eff; margin-top: 0; border-bottom: 1px solid #4a9eff; font-size: 1rem;">TACTICAL ARCHIVE</h3>
                 <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                    <span>MISSIONS WON:</span> <span style="color: #2ecc71;">${wins}</span>
+                    <span>MISSIONS WON:</span> <span style="color: #2ecc71; font-weight: bold;">${stats.wins || 0}</span>
                 </div>
                 <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                    <span>MISSIONS LOST:</span> <span style="color: #ff5c5c;">${losses}</span>
+                    <span>MISSIONS LOST:</span> <span style="color: #ff5c5c; font-weight: bold;">${stats.losses || 0}</span>
                 </div>
                 <div style="display: flex; justify-content: space-between;">
-                    <span>FIRE ACCURACY:</span> <span style="color: #ffcc66;">${(accuracy * 100).toFixed(1)}%</span>
+                    <span>FIRE ACCURACY:</span> <span style="color: #ffcc66; font-weight: bold;">${((stats.accuracy || 0) * 100).toFixed(1)}%</span>
                 </div>
             </div>
         `;
+        console.log("Stats Box UI Updated successfully.");
     } catch (err) {
-        console.error("Failed to update stats:", err);
+        console.error("Stats UI Error:", err);
     }
 }

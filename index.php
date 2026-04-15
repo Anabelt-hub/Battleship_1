@@ -283,12 +283,12 @@ if (preg_match("#^api/test/games/(\d+)/board/(\d+)$#", $path, $m) && $method ===
 if (preg_match('#^api/players/(\d+)/stats$#', $path, $m) && $method === "GET") {
     $pId = (int)$m[1];
     
-    // 1. Get Wins (Only where status is 'finished')
+    // 1. Get Wins (Cast to int)
     $stmtW = $pdo->prepare("SELECT COUNT(*) as wins FROM games WHERE winner_id = ? AND status = 'finished'");
     $stmtW->execute([$pId]);
     $wins = (int)$stmtW->fetch()["wins"];
 
-    // 2. Get Losses (Only games that are 'finished' where someone else won)
+    // 2. Get Losses (Cast to int)
     $stmtL = $pdo->prepare("
         SELECT COUNT(*) as losses 
         FROM games g
@@ -306,7 +306,9 @@ if (preg_match('#^api/players/(\d+)/stats$#', $path, $m) && $method === "GET") {
     $res = $stmtA->fetch();
     $shots = (int)($res["shots"] ?? 0);
     $hits = (int)($res["hits"] ?? 0);
-    $accuracy = $shots > 0 ? round($hits / $shots, 4) : 0.0;
+    
+    // Calculate Accuracy as a float
+    $accuracy = $shots > 0 ? (float)($hits / $shots) : 0.0;
 
     send_json([
         "player_id" => $pId,

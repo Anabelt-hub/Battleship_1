@@ -4,16 +4,16 @@
   "tests": [
     {
       "name": "Reject Duplicate Player Join",
-      "why": "Ensures that a player already in the lobby cannot join the same game a second time, returning a 409 conflict.",
+      "why": "Ensures that a player already in the lobby cannot join the same game a second time; the spec requires a 400 error for this specific scenario.",
       "method": "POST",
       "endpoint": "/api/games/{id}/join",
       "headers": {},
       "body": {
         "player_id": 1
       },
-      "expected_status": 409,
+      "expected_status": 400,
       "expected_response_contains": {
-        "error": "conflict"
+        "error": "bad_request"
       },
       "requires": "game_created"
     },

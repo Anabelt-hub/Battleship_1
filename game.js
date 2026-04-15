@@ -660,41 +660,36 @@ function showEndMissionOverlay(result) {
     console.log("Overlay successfully appended to body.");
 }
 
-if (preg_match('#^api/players/(\d+)/stats$#', $path, $m) && $method === "GET") {
-    $pId = (int)$m[1];
-    
-    // 1. Get Wins (Cast to int)
-    $stmtW = $pdo->prepare("SELECT COUNT(*) as wins FROM games WHERE winner_id = ? AND status = 'finished'");
-    $stmtW->execute([$pId]);
-    $wins = (int)$stmtW->fetch()["wins"];
+async function updateStatsBox() {
+    if (!playerId) return;
 
-    // 2. Get Losses (Cast to int)
-    $stmtL = $pdo->prepare("
-        SELECT COUNT(*) as losses 
-        FROM games g
-        JOIN game_players gp ON g.game_id = gp.game_id
-        WHERE gp.player_id = ? 
-        AND g.status = 'finished' 
-        AND (g.winner_id != ? OR g.winner_id IS NULL)
-    ");
-    $stmtL.execute([$pId, $pId]);
-    $losses = (int)$stmtL->fetch()["losses"];
+    try {
+        const res = await fetch(`/api/players/${playerId}/stats`);
+        const stats = await res.json(); // Use standard json() for debugging
 
-    // 3. Get Shots & Hits
-    $stmtA = $pdo->prepare("SELECT COUNT(*) as shots, SUM(CASE WHEN result='hit' THEN 1 ELSE 0 END) as hits FROM moves WHERE player_id = ?");
-    $stmtA->execute([$pId]);
-    $res = $stmtA->fetch();
-    $shots = (int)($res["shots"] ?? 0);
-    $hits = (int)($res["hits"] ?? 0);
-    
-    // Calculate Accuracy as a float
-    $accuracy = $shots > 0 ? (float)($hits / $shots) : 0.0;
+        const statsBox = document.getElementById("stats-container");
+        if (!statsBox) return;
 
-    send_json([
-        "player_id" => $pId,
-        "wins" => $wins,
-        "losses" => $losses,
-        "total_shots" => $shots,
-        "accuracy" => $accuracy
-    ]);
+        // Ensure we have numbers, default to 0 if undefined
+        const wins = stats.wins || 0;
+        const losses = stats.losses || 0;
+        const accuracy = stats.accuracy || 0;
+
+        statsBox.innerHTML = `
+            <div class="stats-box" style="border: 1px solid #4a9eff; padding: 15px; background: rgba(13, 18, 34, 0.8); color: white; border-radius: 5px; font-family: monospace;">
+                <h3 style="color: #4a9eff; margin-top: 0; border-bottom: 1px solid #4a9eff;">PLAYER TACTICAL DATA</h3>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                    <span>MISSIONS WON:</span> <span style="color: #2ecc71;">${wins}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                    <span>MISSIONS LOST:</span> <span style="color: #ff5c5c;">${losses}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                    <span>FIRE ACCURACY:</span> <span style="color: #ffcc66;">${(accuracy * 100).toFixed(1)}%</span>
+                </div>
+            </div>
+        `;
+    } catch (err) {
+        console.error("Failed to update stats:", err);
+    }
 }

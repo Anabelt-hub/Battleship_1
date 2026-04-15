@@ -297,6 +297,7 @@ async function startNewMission() {
         setStatus(`Mission setup failed: ${err.message}`);
         addToLog(`Mission setup failed: ${err.message}`, "miss");
     }
+    updateStatsBox();
 }
 
 async function resumeMission() {
@@ -344,6 +345,7 @@ async function resumeMission() {
         setStatus(`Resume failed: ${err.message}`);
         addToLog(`Resume failed: ${err.message}`, "miss");
     }
+    updateStatsBox();
 }
 
 function renderPlacementBoard() {

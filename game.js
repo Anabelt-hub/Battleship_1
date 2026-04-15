@@ -660,17 +660,22 @@ function showEndMissionOverlay(result) {
     console.log("Overlay successfully appended to body.");
 }
 
-async function updateStatsBox() {
-    if (!playerId) return;
+async function updateStatsBox(id = null) {
+    // 1. Prioritize the passed ID, then global, then localStorage
+    const targetId = id || playerId || localStorage.getItem("currentPlayerId");
+    
+    if (!targetId) {
+        console.log("Stats blocked: No player ID found yet.");
+        return;
+    }
 
     try {
-        const res = await fetch(`/api/players/${playerId}/stats`);
-        const stats = await res.json(); // Use standard json() for debugging
+        const res = await fetch(`/api/players/${targetId}/stats`);
+        const stats = await res.json();
 
         const statsBox = document.getElementById("stats-container");
         if (!statsBox) return;
 
-        // Ensure we have numbers, default to 0 if undefined
         const wins = stats.wins || 0;
         const losses = stats.losses || 0;
         const accuracy = stats.accuracy || 0;

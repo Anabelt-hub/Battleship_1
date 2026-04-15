@@ -496,9 +496,8 @@ async function firePhasers(row, col) {
 
         if (data.game_status === "finished") {
             gameStatus = "finished";
-            setStatus("Victory! Enemy fleet neutralized.");
             addToLog("VICTORY: Enemy fleet neutralized. Returning to Starbase.", "hit");
-            return;
+            showEndMissionOverlay("win"); // Replaces the basic alert
         }
 
         setTimeout(cpuTurn, 700);
@@ -556,8 +555,8 @@ async function cpuTurn() {
 
         if (data.game_status === "finished") {
             gameStatus = "finished";
-            setStatus("Game over. Your fleet has been destroyed.");
-            addToLog("CRITICAL: Hull integrity failing. Abandon ship!", "miss");
+            addToLog("CRITICAL: Hull integrity failing. Abandon ship!", "hit");
+            showEndMissionOverlay("lose"); // Replaces the basic alert
         }
     } catch (err) {
         console.error(err);
@@ -569,3 +568,38 @@ async function cpuTurn() {
 window.addEventListener("load", () => {
     setStatus("Awaiting mission start.");
 });
+
+function showEndMissionOverlay(result) {
+    const isWin = result === "win";
+    const overlay = document.createElement("div");
+    
+    // Starfleet-themed styling via JS for immediate deployment
+    Object.assign(overlay.style, {
+        position: "fixed",
+        top: "50%",
+        left: "50%",
+        transform: "translate(-50%, -50%)",
+        background: "rgba(13, 18, 34, 0.95)",
+        border: `2px solid ${isWin ? '#2ecc71' : '#ff5c5c'}`,
+        padding: "40px",
+        borderRadius: "8px",
+        textAlign: "center",
+        zIndex: "1000",
+        boxShadow: "0 0 30px rgba(0,0,0,0.5)",
+        backdropFilter: "blur(5px)"
+    });
+
+    overlay.innerHTML = `
+        <h1 style="color: ${isWin ? '#2ecc71' : '#ff5c5c'}; font-size: 2.5rem; margin-bottom: 10px;">
+            ${isWin ? "MISSION ACCOMPLISHED" : "MISSION FAILURE"}
+        </h1>
+        <p style="color: #eaf0ff; margin-bottom: 20px;">
+            ${isWin ? "The Borg Cube has been neutralized. Sector clear." : "Hull integrity compromised. All hands abandon ship."}
+        </p>
+        <button onclick="window.location.reload()" class="success" style="padding: 10px 20px; cursor: pointer;">
+            Return to Starbase
+        </button>
+    `;
+
+    document.body.appendChild(overlay);
+}

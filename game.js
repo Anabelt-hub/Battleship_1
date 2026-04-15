@@ -502,7 +502,10 @@ async function firePhasers(row, col) {
         // Inside firePhasers...
         if (data.game_status === "finished") {
             gameStatus = "finished";
-            updateStatsBox();
+            setTimeout(() => {
+                updateStatsBox();
+            }, 500);
+            
             addToLog("VICTORY: Enemy fleet neutralized. Returning to Starbase.", "hit");
     
             // FORCE CALL: Ensure this matches your function name exactly
@@ -575,7 +578,9 @@ async function cpuTurn() {
         // Logic check for mission failure
         if (data.game_status === "finished") {
             gameStatus = "finished";
-            updateStatsBox();
+            setTimeout(() => {
+                updateStatsBox();
+            }, 500);
             addToLog("CRITICAL: Hull integrity failing. Abandon ship!", "hit");
             if (typeof showEndMissionOverlay === "function") {
                 showEndMissionOverlay("lose");

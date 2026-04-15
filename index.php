@@ -280,4 +280,34 @@ if (preg_match("#^api/test/games/(\d+)/board/(\d+)$#", $path, $m) && $method ===
     ]);
 }
 
+if (preg_match('#^api/players/(\d+)/stats$#', $path, $m) && $method === "GET") {
+    $pId = (int)$m[1];
+    
+    // 1. Get Wins
+    $stmtW = $pdo->prepare("SELECT COUNT(*) as wins FROM games WHERE winner_id = ?");
+    $stmtW->execute([$pId]);
+    $wins = (int)$stmtW->fetch()["wins"];
+
+    // 2. Get Total Games Played
+    $stmtG = $pdo->prepare("SELECT COUNT(DISTINCT game_id) as games FROM game_players WHERE player_id = ?");
+    $stmtG->execute([$pId]);
+    $games = (int)$stmtG->fetch()["games"];
+
+    // 3. Get Shots & Hits for Accuracy
+    $stmtA = $pdo->prepare("SELECT COUNT(*) as shots, SUM(CASE WHEN result='hit' THEN 1 ELSE 0 END) as hits FROM moves WHERE player_id = ?");
+    $stmtA->execute([$pId]);
+    $res = $stmtA->fetch();
+    $shots = (int)$res["shots"];
+    $hits = (int)$res["hits"];
+    $accuracy = $shots > 0 ? round($hits / $shots, 4) : 0.0;
+
+    send_json([
+        "player_id" => $pId,
+        "wins" => $wins,
+        "losses" => max(0, $games - $wins),
+        "total_shots" => $shots,
+        "accuracy" => $accuracy
+    ]);
+}
+
 send_error("not_found", "Endpoint not found", 404);

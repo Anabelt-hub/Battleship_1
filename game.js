@@ -497,15 +497,16 @@ async function firePhasers(row, col) {
         }
 
         // Logic check for game completion
+        // Inside firePhasers...
         if (data.game_status === "finished") {
             gameStatus = "finished";
             addToLog("VICTORY: Enemy fleet neutralized. Returning to Starbase.", "hit");
-            if (typeof showEndMissionOverlay === "function") {
-                showEndMissionOverlay("win"); 
-            } else {
-                alert("🎉 VICTORY! Enemy fleet neutralized.");
-            }
-            return; // Terminate execution immediately so CPU does not fire back
+    
+            // FORCE CALL: Ensure this matches your function name exactly
+            console.log("Calling end mission overlay for: win");
+            showEndMissionOverlay("win"); 
+    
+            return; // Stop the CPU from acting
         }
 
         // Only schedule CPU turn if mission is still active
@@ -590,40 +591,62 @@ window.addEventListener("load", () => {
 });
 
 function showEndMissionOverlay(result) {
-    console.log("Mission Ending: Triggering Overlay...");
     const isWin = result === "win";
-    const overlay = document.createElement("div");
-    overlay.id = "mission-overlay"; // ID for easy removal/debugging
     
-    Object.assign(overlay.style, {
-        position: "fixed",
-        top: "0",
-        left: "0",
-        width: "100%",
-        height: "100%",
-        background: "rgba(5, 7, 13, 0.92)", // Match --bg
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "center",
-        alignItems: "center",
-        zIndex: "9999",
-        backdropFilter: "blur(10px)"
-    });
+    // 1. Remove any existing overlay first to prevent stacking
+    const old = document.getElementById("mission-overlay");
+    if (old) old.remove();
 
+    // 2. Create the main container
+    const overlay = document.createElement("div");
+    overlay.id = "mission-overlay";
+    
+    // 3. Use a high-priority style string
+    overlay.style.cssText = `
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        background: rgba(5, 7, 13, 0.95) !important;
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: center !important;
+        align-items: center !important;
+        z-index: 99999 !important;
+        backdrop-filter: blur(10px) !important;
+        font-family: 'Courier New', Courier, monospace !important;
+    `;
+
+    // 4. Create the content box
     overlay.innerHTML = `
-        <div style="border: 2px solid ${isWin ? '#2ecc71' : '#ff5c5c'}; padding: 40px; border-radius: 10px; background: #0d1222; text-align: center;">
-            <h1 style="color: ${isWin ? '#2ecc71' : '#ff5c5c'}; font-size: 3rem; margin: 0;">
-                ${isWin ? "MISSION ACCOMPLISHED" : "MISSION FAILURE"}
+        <div style="border: 2px solid ${isWin ? '#2ecc71' : '#ff5c5c'}; 
+                    padding: 60px; 
+                    border-radius: 10px; 
+                    background: #0d1222; 
+                    text-align: center; 
+                    box-shadow: 0 0 50px rgba(0,0,0,0.8);">
+            <h1 style="color: ${isWin ? '#2ecc71' : '#ff5c5c'}; font-size: 3.5rem; margin: 0; text-transform: uppercase;">
+                ${isWin ? "Mission Accomplished" : "Mission Failure"}
             </h1>
-            <p style="color: #eaf0ff; font-size: 1.2rem; margin: 20px 0;">
-                ${isWin ? "Borg Cube neutralized. The sector is secure." : "Tactical defeat. The Federation fleet has retreated."}
+            <p style="color: #eaf0ff; font-size: 1.5rem; margin: 30px 0;">
+                ${isWin ? "Target Neutralized. Sector 7-G is secure." : "Tactical systems offline. Fleet is retreating."}
             </p>
             <button onclick="localStorage.clear(); window.location.reload();" 
-                    style="background: ${isWin ? '#2ecc71' : '#ff5c5c'}; color: white; border: none; padding: 15px 30px; font-size: 1rem; border-radius: 5px; cursor: pointer;">
+                    style="background: ${isWin ? '#2ecc71' : '#ff5c5c'}; 
+                           color: white; 
+                           border: none; 
+                           padding: 20px 40px; 
+                           font-size: 1.2rem; 
+                           border-radius: 5px; 
+                           cursor: pointer;
+                           font-weight: bold;
+                           text-transform: uppercase;">
                 Return to Starbase
             </button>
         </div>
     `;
 
     document.body.appendChild(overlay);
+    console.log("Overlay successfully appended to body.");
 }

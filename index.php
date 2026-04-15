@@ -183,25 +183,54 @@ if (preg_match("#^api/games/(\d+)/place/?$#", $path, $m) && $method === "POST") 
     send_json(["status" => "placed"]);
 }
 
-if (preg_match("#^api/games/(\d+)/fire$#", $path, $m) && $method === "POST") {
+// POST /api/games/{id}/fire
+if (preg_match("#^api/games/(\d+)/fire/?$#", $path, $m) && $method === "POST") {
     $gameId = (int)$m[1];
     $body = json_decode(file_get_contents("php://input"), true) ?? [];
-
     $playerId = (int)($body["player_id"] ?? 0);
-    $r = (int)($body["row"] ?? -1);
-    $c = (int)($body["col"] ?? -1);
+    $r = (int)$body["row"]; $c = (int)$body["col"];
 
+    // 1. Record the move
     $stmtH = $pdo->prepare("SELECT 1 FROM ships WHERE game_id = ? AND player_id != ? AND row = ? AND col = ?");
     $stmtH->execute([$gameId, $playerId, $r, $c]);
     $result = $stmtH->fetch() ? "hit" : "miss";
 
     $pdo->prepare("INSERT INTO moves (game_id, player_id, row, col, result) VALUES (?, ?, ?, ?, ?)")
         ->execute([$gameId, $playerId, $r, $c, $result]);
+    
+    // 2. CHECK IF OPPONENT HAS ANY SHIPS LEFT (Crucial Fix)
+    // Find who the opponent is
+    $stmtOpp = $pdo->prepare("SELECT player_id FROM game_players WHERE game_id = ? AND player_id != ? LIMIT 1");
+    $stmtOpp->execute([$gameId, $playerId]);
+    $oppId = $stmtOpp->fetch()["player_id"];
+
+    // Count ships of the opponent that have NOT been hit
+    $stmtCheck = $pdo->prepare("
+        SELECT COUNT(*) as rem 
+        FROM ships s 
+        WHERE s.game_id = ? AND s.player_id = ? 
+        AND NOT EXISTS (
+            SELECT 1 FROM moves m 
+            WHERE m.game_id = s.game_id 
+            AND m.row = s.row AND m.col = s.col 
+            AND m.result = 'hit'
+        )
+    ");
+    $stmtCheck->execute([$gameId, $oppId]);
+    $remainingShips = (int)$stmtCheck->fetch()["rem"];
+
+    // 3. Update status if game is over
+    $gameStatus = ($remainingShips === 0) ? "finished" : "playing";
+    
+    if ($gameStatus === "finished") {
+        $pdo->prepare("UPDATE games SET status = 'finished', winner_id = ? WHERE game_id = ?")
+            ->execute([$playerId, $gameId]);
+    }
 
     send_json([
-        "result" => $result,
-        "game_status" => "playing",
-        "next_player_id" => 0
+        "result" => $result, 
+        "game_status" => $gameStatus, 
+        "next_player_id" => 0 // Simplified for Phase 2
     ]);
 }
 

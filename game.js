@@ -500,6 +500,7 @@ async function firePhasers(row, col) {
         // Inside firePhasers...
         if (data.game_status === "finished") {
             gameStatus = "finished";
+            updateStatsBox();
             addToLog("VICTORY: Enemy fleet neutralized. Returning to Starbase.", "hit");
     
             // FORCE CALL: Ensure this matches your function name exactly
@@ -572,6 +573,7 @@ async function cpuTurn() {
         // Logic check for mission failure
         if (data.game_status === "finished") {
             gameStatus = "finished";
+            updateStatsBox();
             addToLog("CRITICAL: Hull integrity failing. Abandon ship!", "hit");
             if (typeof showEndMissionOverlay === "function") {
                 showEndMissionOverlay("lose");
@@ -649,4 +651,34 @@ function showEndMissionOverlay(result) {
 
     document.body.appendChild(overlay);
     console.log("Overlay successfully appended to body.");
+}
+
+async function updateStatsBox() {
+    if (!playerId) return;
+
+    try {
+        const res = await fetch(`/api/players/${playerId}/stats`);
+        const stats = await safeJson(res);
+
+        const statsBox = document.getElementById("stats-container");
+        if (!statsBox) return;
+
+        // Render themed stats with Starfleet formatting
+        statsBox.innerHTML = `
+            <div class="stats-box" style="border: 1px solid #4a9eff; padding: 15px; background: rgba(13, 18, 34, 0.8); color: white; border-radius: 5px; font-family: monospace;">
+                <h3 style="color: #4a9eff; margin-top: 0; border-bottom: 1px solid #4a9eff;">PLAYER TACTICAL DATA</h3>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                    <span>MISSIONS WON:</span> <span style="color: #2ecc71;">${stats.wins}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+                    <span>MISSIONS LOST:</span> <span style="color: #ff5c5c;">${stats.losses}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                    <span>FIRE ACCURACY:</span> <span style="color: #ffcc66;">${(stats.accuracy * 100).toFixed(1)}%</span>
+                </div>
+            </div>
+        `;
+    } catch (err) {
+        console.error("Failed to update stats:", err);
+    }
 }

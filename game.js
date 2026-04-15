@@ -481,7 +481,7 @@ async function firePhasers(row, col) {
             })
         });
 
-        // Using safeJson if you have it defined, otherwise use res.json()
+        // Use safeJson if available, fallback to standard res.json()
         const data = typeof safeJson === "function" ? await safeJson(res) : await res.json();
         
         if (!res.ok) {
@@ -500,11 +500,15 @@ async function firePhasers(row, col) {
         if (data.game_status === "finished") {
             gameStatus = "finished";
             addToLog("VICTORY: Enemy fleet neutralized. Returning to Starbase.", "hit");
-            showEndMissionOverlay("win"); 
-            return; // Stop execution so CPU doesn't try to fire after it's destroyed
+            if (typeof showEndMissionOverlay === "function") {
+                showEndMissionOverlay("win"); 
+            } else {
+                alert("🎉 VICTORY! Enemy fleet neutralized.");
+            }
+            return; // Terminate execution immediately so CPU does not fire back
         }
 
-        // Only trigger CPU turn if the game is still active
+        // Only schedule CPU turn if mission is still active
         setTimeout(cpuTurn, 700);
     } catch (err) {
         console.error(err);
@@ -514,11 +518,11 @@ async function firePhasers(row, col) {
 }
 
 async function cpuTurn() {
-    // Ensure we don't act if game finished during the timeout
+    // Prevent CPU from acting if player just won or session ended
     if (gameStatus !== "playing") return;
     
-    // Fallback for cpuPlayerId if it's stored in localStorage
-    const activeCpuId = typeof cpuPlayerId !== 'undefined' ? cpuPlayerId : localStorage.getItem('cpuPlayerId');
+    // Consistent ID retrieval from global or local storage
+    const activeCpuId = typeof cpuPlayerId !== 'undefined' && cpuPlayerId ? cpuPlayerId : localStorage.getItem('cpuPlayerId');
     if (!activeCpuId) return;
 
     let attempts = 0;
@@ -568,7 +572,11 @@ async function cpuTurn() {
         if (data.game_status === "finished") {
             gameStatus = "finished";
             addToLog("CRITICAL: Hull integrity failing. Abandon ship!", "hit");
-            showEndMissionOverlay("lose");
+            if (typeof showEndMissionOverlay === "function") {
+                showEndMissionOverlay("lose");
+            } else {
+                alert("💀 GAME OVER: You have been destroyed.");
+            }
         }
     } catch (err) {
         console.error(err);

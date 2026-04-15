@@ -283,31 +283,37 @@ if (preg_match("#^api/test/games/(\d+)/board/(\d+)$#", $path, $m) && $method ===
 if (preg_match('#^api/players/(\d+)/stats$#', $path, $m) && $method === "GET") {
     $pId = (int)$m[1];
     
-    // 1. Get Wins
-    $stmtW = $pdo->prepare("SELECT COUNT(*) as wins FROM games WHERE winner_id = ?");
+    // 1. Get Wins (Only where status is 'finished')
+    $stmtW = $pdo->prepare("SELECT COUNT(*) as wins FROM games WHERE winner_id = ? AND status = 'finished'");
     $stmtW->execute([$pId]);
     $wins = (int)$stmtW->fetch()["wins"];
 
-    // 2. Get Total Games Played
-    $stmtG = $pdo->prepare("SELECT COUNT(DISTINCT game_id) as games FROM game_players WHERE player_id = ?");
-    $stmtG->execute([$pId]);
-    $games = (int)$stmtG->fetch()["games"];
+    // 2. Get Losses (Only games that are 'finished' where someone else won)
+    $stmtL = $pdo->prepare("
+        SELECT COUNT(*) as losses 
+        FROM games g
+        JOIN game_players gp ON g.game_id = gp.game_id
+        WHERE gp.player_id = ? 
+        AND g.status = 'finished' 
+        AND (g.winner_id != ? OR g.winner_id IS NULL)
+    ");
+    $stmtL.execute([$pId, $pId]);
+    $losses = (int)$stmtL->fetch()["losses"];
 
-    // 3. Get Shots & Hits for Accuracy
+    // 3. Get Shots & Hits
     $stmtA = $pdo->prepare("SELECT COUNT(*) as shots, SUM(CASE WHEN result='hit' THEN 1 ELSE 0 END) as hits FROM moves WHERE player_id = ?");
     $stmtA->execute([$pId]);
     $res = $stmtA->fetch();
-    $shots = (int)$res["shots"];
-    $hits = (int)$res["hits"];
+    $shots = (int)($res["shots"] ?? 0);
+    $hits = (int)($res["hits"] ?? 0);
     $accuracy = $shots > 0 ? round($hits / $shots, 4) : 0.0;
 
     send_json([
         "player_id" => $pId,
         "wins" => $wins,
-        "losses" => max(0, $games - $wins),
+        "losses" => $losses,
         "total_shots" => $shots,
         "accuracy" => $accuracy
     ]);
 }
-
 send_error("not_found", "Endpoint not found", 404);

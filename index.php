@@ -86,16 +86,30 @@ if ($path === "api/players" && $method === "POST") {
         send_error("bad_request", "username required", 400);
     }
 
+    // 1. Check if the player already exists
     $stmt = $pdo->prepare("SELECT player_id FROM players WHERE username = ?");
     $stmt->execute([$username]);
+    $existingPlayer = $stmt->fetch();
 
-    if ($stmt->fetch()) {
-        send_error("conflict", "Username exists", 409);
+    if ($existingPlayer) {
+        // SUCCESS: Return existing ID so stats and history persist
+        send_json([
+            "player_id" => (int)$existingPlayer["player_id"],
+            "username" => $username,
+            "message" => "Welcome back, Captain."
+        ], 200);
+        exit; // Stop execution here
     }
 
+    // 2. Otherwise, create a new player (PostgreSQL RETURNING syntax)
     $stmt = $pdo->prepare("INSERT INTO players (username) VALUES (?) RETURNING player_id");
     $stmt->execute([$username]);
-    send_json(["player_id" => (int)$stmt->fetch()["player_id"]], 201);
+    $newPlayer = $stmt->fetch();
+    
+    send_json([
+        "player_id" => (int)$newPlayer["player_id"],
+        "username" => $username
+    ], 201);
 }
 
 if ($path === "api/games" && $method === "POST") {

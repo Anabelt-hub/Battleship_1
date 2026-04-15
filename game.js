@@ -215,6 +215,8 @@ async function startNewMission() {
             throw new Error(pData.message || "Could not create player.");
         }
         playerId = Number(pData.player_id);
+        localStorage.setItem("currentPlayerId", String(playerId));
+        updateStatsBox(playerId); // Pass it in directly!
 
         const gRes = await fetch("/api/games", {
             method: "POST",
@@ -297,7 +299,6 @@ async function startNewMission() {
         setStatus(`Mission setup failed: ${err.message}`);
         addToLog(`Mission setup failed: ${err.message}`, "miss");
     }
-    updateStatsBox();
 }
 
 async function resumeMission() {
@@ -313,7 +314,9 @@ async function resumeMission() {
         }
 
         gameId = Number(savedGameId);
+        // ... after localStorage is read
         playerId = Number(savedPlayerId);
+        updateStatsBox(playerId); // Pass it in directly!
         cpuPlayerId = Number(savedCpuId);
 
         const res = await fetch(`/api/games/${gameId}`);
@@ -345,7 +348,6 @@ async function resumeMission() {
         setStatus(`Resume failed: ${err.message}`);
         addToLog(`Resume failed: ${err.message}`, "miss");
     }
-    updateStatsBox();
 }
 
 function renderPlacementBoard() {

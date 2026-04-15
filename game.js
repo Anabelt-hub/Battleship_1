@@ -663,26 +663,18 @@ function showEndMissionOverlay(result) {
 }
 
 async function updateStatsBox(id = null) {
-    // 1. Resolve ID
     const targetId = id || playerId || localStorage.getItem("currentPlayerId");
-    console.log("Stats Request for ID:", targetId);
-
-    if (!targetId) return;
+    if (!targetId) return; // Keep defaults if no ID is known
 
     try {
         const res = await fetch(`/api/players/${targetId}/stats`);
-        if (!res.ok) throw new Error("Server stats unreachable");
+        if (!res.ok) return;
         
         const stats = await res.json();
-        console.log("Stats Data Received:", stats);
-
         const statsBox = document.getElementById("stats-container");
-        if (!statsBox) {
-            console.error("CRITICAL: #stats-container not found in HTML");
-            return;
-        }
+        if (!statsBox) return;
 
-        // 2. FORCE RENDER: Overwrite 'Awaiting identification...'
+        // Force render the updated stats over the defaults
         statsBox.innerHTML = `
             <div style="border: 1px solid #4a9eff; padding: 15px; background: rgba(13, 18, 34, 0.8); color: white; border-radius: 5px; font-family: monospace;">
                 <h3 style="color: #4a9eff; margin-top: 0; border-bottom: 1px solid #4a9eff; font-size: 1rem;">TACTICAL ARCHIVE</h3>
@@ -697,8 +689,7 @@ async function updateStatsBox(id = null) {
                 </div>
             </div>
         `;
-        console.log("Stats Box UI Updated successfully.");
     } catch (err) {
-        console.error("Stats UI Error:", err);
+        console.error("Stats update failed:", err);
     }
 }

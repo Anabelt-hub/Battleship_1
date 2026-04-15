@@ -156,7 +156,20 @@ h1{ margin:0; font-size:18px; letter-spacing:0.5px; }
   font-size: 12.5px;
 }
 
-
+.layout {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+        gap: 20px;
+        padding: 20px;
+    }
+    
+    #stats-container {
+        padding: 10px;
+        background: rgba(13, 18, 34, 0.5);
+        border: 1px solid #4a9eff;
+        border-radius: 4px;
+        min-height: 100px;
+    }
 
 
 /* Exam additions */

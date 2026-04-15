@@ -1,120 +1,85 @@
 {
-    "team_name": "Team 404 Error",
-    "api_version": "2.3",
-    "tests": [
-      {
-        "name": "Standard Player Registration",
-        "why": "Verifies that a valid username returns 201 and a server-generated integer ID.",
-        "method": "POST",
-        "endpoint": "/api/players",
-        "headers": {},
-        "body": {
-          "username": "Admiral_Gabbie"
-        },
-        "expected_status": 201,
-        "expected_response_contains": {
-          "player_id": "__any_integer__"
-        },
-        "requires": "clean"
+  "team_name": "Team 404 Error",
+  "api_version": "2.3",
+  "tests": [
+    {
+      "name": "Reject Duplicate Player Join",
+      "why": "Ensures that a player already in the lobby cannot join the same game a second time, returning a 409 conflict.",
+      "method": "POST",
+      "endpoint": "/api/games/{id}/join",
+      "headers": {},
+      "body": {
+        "player_id": 1
       },
-      {
-        "name": "Game Creation Initial Status",
-        "why": "Ensures new games correctly initialize in the waiting_setup state per v2.3 spec.",
-        "method": "POST",
-        "endpoint": "/api/games",
-        "headers": {},
-        "body": {
-          "creator_id": 1,
-          "grid_size": 10,
-          "max_players": 2
-        },
-        "expected_status": 201,
-        "expected_response_contains": {
-          "game_id": "__any_integer__",
-          "status": "waiting_setup"
-        },
-        "requires": "clean"
+      "expected_status": 409,
+      "expected_response_contains": {
+        "error": "conflict"
       },
-      {
-        "name": "Join Existing Lobby",
-        "why": "Confirms a second player can join a created game successfully.",
-        "method": "POST",
-        "endpoint": "/api/games/{id}/join",
-        "headers": {},
-        "body": {
-          "player_id": 2
-        },
-        "expected_status": 200,
-        "expected_response_contains": {
-          "status": "joined"
-        },
-        "requires": "game_created"
+      "requires": "game_created"
+    },
+    {
+      "name": "Reject Ship Placement After Game Starts",
+      "why": "Once the game state transitions to 'playing', the server must reject further ship placement attempts with a 409 conflict.",
+      "method": "POST",
+      "endpoint": "/api/games/{id}/place",
+      "headers": {},
+      "body": {
+        "player_id": 1,
+        "ships": [
+          {"row": 0, "col": 0},
+          {"row": 0, "col": 1},
+          {"row": 0, "col": 2}
+        ]
       },
-      {
-        "name": "Reject Out of Turn Fire",
-        "why": "Enforces turn order by rejecting Player 2's fire attempt before Player 1 has moved.",
-        "method": "POST",
-        "endpoint": "/api/games/{id}/fire",
-        "headers": {},
-        "body": {
-          "player_id": 2,
-          "row": 0,
-          "col": 0
-        },
-        "expected_status": 403,
-        "expected_response_contains": {
-          "error": "forbidden"
-        },
-        "requires": "game_playing"
+      "expected_status": 409,
+      "expected_response_contains": {
+        "error": "conflict"
       },
-      {
-        "name": "Coordinate Bounds Validation",
-        "why": "Ensures the server rejects fire attempts outside the defined grid dimensions.",
-        "method": "POST",
-        "endpoint": "/api/games/{id}/fire",
-        "headers": {},
-        "body": {
-          "player_id": 1,
-          "row": 99,
-          "col": 5
-        },
-        "expected_status": 400,
-        "expected_response_contains": {
-          "error": "bad_request"
-        },
-        "requires": "game_playing"
+      "requires": "game_playing"
+    },
+    {
+      "name": "Verify Move History Integrity",
+      "why": "Confirms that the move history endpoint returns a valid object and an array of moves once gameplay has begun.",
+      "method": "GET",
+      "endpoint": "/api/games/{id}/moves",
+      "headers": {},
+      "body": null,
+      "expected_status": 200,
+      "expected_response_contains": {
+        "game_id": "__any_integer__"
       },
-      {
-        "name": "Duplicate Move Prevention",
-        "why": "Verifies that the server prevents a player from targeting the same sector twice in one game.",
-        "method": "POST",
-        "endpoint": "/api/games/{id}/fire",
-        "headers": {},
-        "body": {
-          "player_id": 1,
-          "row": 5,
-          "col": 5
-        },
-        "expected_status": 409,
-        "expected_response_contains": {
-          "error": "conflict"
-        },
-        "requires": "game_playing"
+      "requires": "game_playing"
+    },
+    {
+      "name": "Enforce Strict Turn Order",
+      "why": "Ensures the server returns 403 Forbidden if Player 2 attempts to fire before Player 1 has taken their initial turn.",
+      "method": "POST",
+      "endpoint": "/api/games/{id}/fire",
+      "headers": {},
+      "body": {
+        "player_id": 2,
+        "row": 0,
+        "col": 0
       },
-      {
-        "name": "Player Stats Integrity",
-        "why": "Ensures the stats endpoint returns the correct structure and zero-state for a registered player.",
-        "method": "GET",
-        "endpoint": "/api/players/1/stats",
-        "headers": {},
-        "body": null,
-        "expected_status": 200,
-        "expected_response_contains": {
-          "player_id": "__any_integer__",
-          "wins": 0,
-          "accuracy": 0.0
-        },
-        "requires": "clean"
-      }
-    ]
-  }
+      "expected_status": 403,
+      "expected_response_contains": {
+        "error": "forbidden"
+      },
+      "requires": "game_playing"
+    },
+    {
+      "name": "Validate Player Stats in Active Session",
+      "why": "Verifies that player statistics can be retrieved and contain the correct snake_case fields even while a game is currently in progress.",
+      "method": "GET",
+      "endpoint": "/api/players/1/stats",
+      "headers": {},
+      "body": null,
+      "expected_status": 200,
+      "expected_response_contains": {
+        "games_played": "__any_integer__",
+        "accuracy": "__any_float__"
+      },
+      "requires": "game_playing"
+    }
+  ]
+}

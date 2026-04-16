@@ -201,13 +201,19 @@ async function startNewMission() {
         addToLog("Initializing Starfleet Tactical computer...");
         setStatus("Opening mission channel...");
 
-        const humanName = `Captain_Gabbie_${Date.now()}`;
         const cpuName = `Borg_Cube_${Date.now()}`;
+
+        // Reuse the persistent player across missions so wins/losses carry over
+        let persistentPlayerName = localStorage.getItem("persistentPlayerName");
+        if (!persistentPlayerName) {
+            persistentPlayerName = `Captain_Gabbie_${Date.now()}`;
+            localStorage.setItem("persistentPlayerName", persistentPlayerName);
+        }
 
         const pRes = await fetch("/api/players", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ username: humanName })
+            body: JSON.stringify({ username: persistentPlayerName })
         });
 
         const pData = await safeJson(pRes);
@@ -672,14 +678,18 @@ function showEndMissionOverlay(result) {
 // so Mission Intel (wins/losses) survives across games and page refreshes.
 function returnToStarbase() {
     const persistentPlayerId = localStorage.getItem("currentPlayerId");
+    const persistentPlayerName = localStorage.getItem("persistentPlayerName");
 
     // Wipe game-specific data only
     localStorage.removeItem("currentGameId");
     localStorage.removeItem("cpuPlayerId");
 
-    // Re-save the player ID so stats load on next page load
+    // Re-save the player identity so stats load on next page load
     if (persistentPlayerId) {
         localStorage.setItem("currentPlayerId", persistentPlayerId);
+    }
+    if (persistentPlayerName) {
+        localStorage.setItem("persistentPlayerName", persistentPlayerName);
     }
 
     window.location.reload();

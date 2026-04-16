@@ -515,13 +515,13 @@ async function firePhasers(row, col) {
             })
         });
 
-        // Use safeJson if available, fallback to standard res.json()
         const data = typeof safeJson === "function" ? await safeJson(res) : await res.json();
         
         if (!res.ok) {
             throw new Error(data.message || "Could not fire.");
         }
 
+        // VISUAL UPDATE: Apply the hit/miss class before checking game status
         if (data.result === "hit") {
             cell.classList.add("hit");
             addToLog(`Tactical: Phasers fired at Sector ${row},${col} - HIT`, "hit");
@@ -530,24 +530,19 @@ async function firePhasers(row, col) {
             addToLog(`Tactical: Phasers fired at Sector ${row},${col} - MISS`, "miss");
         }
 
-        // Logic check for game completion
-        // Inside firePhasers...
         if (data.game_status === "finished") {
             gameStatus = "finished";
             setTimeout(() => {
-                updateStatsBox();
+                // Pass the playerId to ensure stats update correctly
+                updateStatsBox(playerId);
             }, 500);
             
             addToLog("VICTORY: Enemy fleet neutralized. Returning to Starbase.", "hit");
-    
-            // FORCE CALL: Ensure this matches your function name exactly
             console.log("Calling end mission overlay for: win");
             showEndMissionOverlay("win"); 
-    
-            return; // Stop the CPU from acting
+            return; 
         }
 
-        // Only schedule CPU turn if mission is still active
         setTimeout(cpuTurn, 700);
     } catch (err) {
         console.error(err);
@@ -557,10 +552,8 @@ async function firePhasers(row, col) {
 }
 
 async function cpuTurn() {
-    // Prevent CPU from acting if player just won or session ended
     if (gameStatus !== "playing") return;
     
-    // Consistent ID retrieval from global or local storage
     const activeCpuId = typeof cpuPlayerId !== 'undefined' && cpuPlayerId ? cpuPlayerId : localStorage.getItem('cpuPlayerId');
     if (!activeCpuId) return;
 
@@ -607,11 +600,11 @@ async function cpuTurn() {
             }
         }
 
-        // Logic check for mission failure
         if (data.game_status === "finished") {
             gameStatus = "finished";
             setTimeout(() => {
-                updateStatsBox();
+                // Pass the playerId to ensure stats update correctly
+                updateStatsBox(playerId);
             }, 500);
             addToLog("CRITICAL: Hull integrity failing. Abandon ship!", "hit");
             if (typeof showEndMissionOverlay === "function") {

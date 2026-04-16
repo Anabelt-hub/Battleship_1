@@ -311,7 +311,7 @@ if (preg_match('#^api/players/(\d+)/stats$#', $path, $m) && $method === "GET") {
         AND g.status = 'finished' 
         AND (g.winner_id != ? OR g.winner_id IS NULL)
     ");
-    $stmtL.execute([$pId, $pId]);
+    $stmtL->execute([$pId, $pId]);
     $losses = (int)$stmtL->fetch()["losses"];
 
     // 3. Get Shots & Hits

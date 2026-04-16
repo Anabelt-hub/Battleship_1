@@ -424,13 +424,11 @@ function handlePlacementClick(row, col) {
 async function submitPlacement() {
     if (!gameId || !playerId) {
         setStatus("No active mission.");
-        addToLog("No active mission to deploy.", "miss");
         return;
     }
 
     if (selectedShips.length !== MAX_PLACEMENT_SHIPS) {
         setStatus("Select exactly 3 sectors first.");
-        addToLog("Deployment blocked. Exactly 3 sectors required.", "miss");
         return;
     }
 
@@ -445,28 +443,26 @@ async function submitPlacement() {
         });
 
         const data = await safeJson(res);
-        if (!res.ok) {
-            throw new Error(data.message || "Could not place ships.");
-        }
+        if (!res.ok) throw new Error(data.message || "Could not place ships.");
 
-        // game.js - Inside submitPlacement() after the res.ok check
+        // 1. UPDATE STATE
         isPlacementMode = false;
-        const hint = document.getElementById("placementHint");
-        if (hint) hint.style.display = "none"; // Hide the placement text
-        setStatus("Sensors Active. Federation turn. Fire when ready.");
         gameStatus = "playing";
 
+        // 2. UPDATE UI
+        const hint = document.getElementById("placementHint");
+        if (hint) hint.style.display = "none"; 
         if (btnConfirmPlacement) btnConfirmPlacement.disabled = true;
 
         setStatus("Sensors Active. Enemy fleet detected. Fire when ready!");
-        addToLog("Federation fleet has exited warp and taken positions.");
-        addToLog("Long-range sensors confirm enemy presence. Red Alert!");
+        addToLog("Federation fleet has taken positions. Red Alert!");
 
+        // 3. CRUCIAL: Transition to the battle grids
         renderBattleBoards();
+
     } catch (err) {
         console.error(err);
         setStatus(`Deployment failed: ${err.message}`);
-        addToLog(`Deployment failed: ${err.message}`, "miss");
     }
 }
 
@@ -501,8 +497,8 @@ function renderBattleBoards() {
 async function firePhasers(row, col) {
     if (gameStatus !== "playing") return;
 
-    // Ensure we have our ID
-    if (!playerId) playerId = Number(localStorage.getItem("currentPlayerId"));
+    // Use a fresh ID from storage every shot to prevent turn desync
+    const currentId = Number(localStorage.getItem("currentPlayerId"));
 
     const cell = document.getElementById(`cpu-cell-${row}-${col}`);
     if (!cell || cell.classList.contains("hit") || cell.classList.contains("miss")) return;
@@ -512,40 +508,44 @@ async function firePhasers(row, col) {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-                player_id: playerId,
+                player_id: currentId,
                 row,
                 col
             })
         });
 
         const data = await safeJson(res);
+        
         if (!res.ok) {
-            console.error("Server rejected shot:", data.message);
-            throw new Error(data.message);
+            // If the server blocks you, it means the turn hasn't switched yet.
+            console.error("Turn Blocked:", data.message);
+            addToLog("Phaser banks recharging... Wait for confirmation.", "miss");
+            return;
         }
 
-        // Apply hit/miss visuals immediately
+        // Apply visual updates
         if (data.result === "hit") {
             cell.classList.add("hit");
-            cell.style.backgroundColor = "#ff5c5c"; // Force red for your video demo
-            addToLog(`Tactical: Sector ${row},${col} - HIT`, "hit");
+            cell.style.backgroundColor = "#ff5c5c"; 
+            addToLog(`[HIT] Sector ${row}-${col}`, "hit");
         } else {
             cell.classList.add("miss");
-            addToLog(`Tactical: Sector ${row},${col} - MISS`, "miss");
+            cell.style.backgroundColor = "#4a9eff"; // Clear blue for miss
+            addToLog(`[MISS] Sector ${row}-${col}`, "miss");
         }
 
         if (data.game_status === "finished") {
             gameStatus = "finished";
-            setTimeout(() => updateStatsBox(playerId), 500);
+            setTimeout(() => updateStatsBox(), 500);
             showEndMissionOverlay("win"); 
             return; 
         }
 
-        // Trigger CPU turn
-        setTimeout(cpuTurn, 800);
+        // Only call CPU turn if the mission continues
+        setTimeout(cpuTurn, 1000);
 
     } catch (err) {
-        addToLog(`Weapons Error: ${err.message}`, "miss");
+        console.error(err);
     }
 }
 

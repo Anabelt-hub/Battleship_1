@@ -497,6 +497,8 @@ function renderBattleBoards() {
 async function firePhasers(row, col) {
     if (gameStatus !== "playing") return;
 
+    if (!playerId) playerId = Number(localStorage.getItem("currentPlayerId"));
+
     const cell = document.getElementById(`cpu-cell-${row}-${col}`);
     if (!cell) return;
 
@@ -515,13 +517,14 @@ async function firePhasers(row, col) {
             })
         });
 
+        // FIXED: Only one declaration of data
         const data = typeof safeJson === "function" ? await safeJson(res) : await res.json();
         
         if (!res.ok) {
             throw new Error(data.message || "Could not fire.");
         }
 
-        // VISUAL UPDATE: Apply the hit/miss class before checking game status
+        // VISUAL UPDATE: Apply the hit/miss class immediately
         if (data.result === "hit") {
             cell.classList.add("hit");
             addToLog(`Tactical: Phasers fired at Sector ${row},${col} - HIT`, "hit");
@@ -533,7 +536,7 @@ async function firePhasers(row, col) {
         if (data.game_status === "finished") {
             gameStatus = "finished";
             setTimeout(() => {
-                updateStatsBox();
+                updateStatsBox(); // Added playerId here for consistency
             }, 500);
             
             addToLog("VICTORY: Enemy fleet neutralized. Returning to Starbase.", "hit");
@@ -544,48 +547,51 @@ async function firePhasers(row, col) {
 
         setTimeout(cpuTurn, 700);
     } catch (err) {
-        console.error(err);
-        if (typeof setStatus === "function") setStatus(`Weapons error: ${err.message}`);
-        addToLog(`Weapons error: ${err.message}`, "miss");
+        console.error("Fire Error:", err);
+        if (err.message.includes("turn")) {
+            addToLog("Wait for enemy fire to conclude...", "miss");
+        } else {
+            addToLog(`Weapons error: ${err.message}`, "miss");
+        }
     }
 }
 
 async function cpuTurn() {
     if (gameStatus !== "playing") return;
     
-    const activeCpuId = typeof cpuPlayerId !== 'undefined' && cpuPlayerId ? cpuPlayerId : localStorage.getItem('cpuPlayerId');
+    // Refresh the CPU ID from storage to be safe
+    const activeCpuId = cpuPlayerId || localStorage.getItem('cpuPlayerId');
     if (!activeCpuId) return;
 
+    let row, col, target;
     let attempts = 0;
-    let row = 0;
-    let col = 0;
-    let target = null;
 
     do {
         row = Math.floor(Math.random() * SIZE);
         col = Math.floor(Math.random() * SIZE);
         target = document.getElementById(`player-cell-${row}-${col}`);
         attempts++;
-    } while (
-        target &&
-        (target.classList.contains("hit") || target.classList.contains("miss")) &&
-        attempts < 200
-    );
+    } while (target && (target.classList.contains("hit") || target.classList.contains("miss")) && attempts < 100);
 
     try {
         const res = await fetch(`/api/games/${gameId}/fire`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-                player_id: parseInt(activeCpuId),
+                player_id: Number(activeCpuId),
                 row,
                 col
             })
         });
 
-        const data = typeof safeJson === "function" ? await safeJson(res) : await res.json();
+        const data = await safeJson(res);
 
         if (!res.ok) {
+            // If the CPU fires too fast and gets a "Not your turn", try again in a moment
+            if (res.status === 403) {
+                setTimeout(cpuTurn, 500);
+                return;
+            }
             throw new Error(data.message || "Enemy turn failed.");
         }
 
@@ -601,20 +607,11 @@ async function cpuTurn() {
 
         if (data.game_status === "finished") {
             gameStatus = "finished";
-            setTimeout(() => {
-                updateStatsBox();
-            }, 500);
-            addToLog("CRITICAL: Hull integrity failing. Abandon ship!", "hit");
-            if (typeof showEndMissionOverlay === "function") {
-                showEndMissionOverlay("lose");
-            } else {
-                alert("💀 GAME OVER: You have been destroyed.");
-            }
+            setTimeout(() => updateStatsBox(playerId), 500);
+            showEndMissionOverlay("lose");
         }
     } catch (err) {
-        console.error(err);
-        if (typeof setStatus === "function") setStatus(`Enemy action failed: ${err.message}`);
-        addToLog(`Enemy action failed: ${err.message}`, "miss");
+        console.error("CPU Error:", err);
     }
 }
 

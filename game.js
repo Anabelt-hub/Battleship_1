@@ -449,7 +449,11 @@ async function submitPlacement() {
             throw new Error(data.message || "Could not place ships.");
         }
 
+        // game.js - Inside submitPlacement() after the res.ok check
         isPlacementMode = false;
+        const hint = document.getElementById("placementHint");
+        if (hint) hint.style.display = "none"; // Hide the placement text
+        setStatus("Sensors Active. Federation turn. Fire when ready.");
         gameStatus = "playing";
 
         if (btnConfirmPlacement) btnConfirmPlacement.disabled = true;
@@ -582,7 +586,7 @@ async function cpuTurn() {
             // If the server says it's not the CPU's turn, wait and try one more time
             if (res.status === 403) {
                 console.warn("CPU fired out of turn, retrying...");
-                setTimeout(cpuTurn, 500);
+                setTimeout(cpuTurn, 2000);
                 return;
             }
             throw new Error(data.message);

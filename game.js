@@ -533,8 +533,7 @@ async function firePhasers(row, col) {
         if (data.game_status === "finished") {
             gameStatus = "finished";
             setTimeout(() => {
-                // Pass the playerId to ensure stats update correctly
-                updateStatsBox(playerId);
+                updateStatsBox();
             }, 500);
             
             addToLog("VICTORY: Enemy fleet neutralized. Returning to Starbase.", "hit");
@@ -603,8 +602,7 @@ async function cpuTurn() {
         if (data.game_status === "finished") {
             gameStatus = "finished";
             setTimeout(() => {
-                // Pass the playerId to ensure stats update correctly
-                updateStatsBox(playerId);
+                updateStatsBox();
             }, 500);
             addToLog("CRITICAL: Hull integrity failing. Abandon ship!", "hit");
             if (typeof showEndMissionOverlay === "function") {

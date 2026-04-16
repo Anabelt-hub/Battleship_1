@@ -599,6 +599,12 @@ async function cpuTurn() {
 
 window.addEventListener("load", () => {
     setStatus("Awaiting mission start.");
+
+    // Restore stats on every page load using the persistent player ID
+    const savedPlayerId = localStorage.getItem("currentPlayerId");
+    if (savedPlayerId) {
+        updateStatsBox(Number(savedPlayerId));
+    }
 });
 
 function showEndMissionOverlay(result) {
@@ -643,7 +649,7 @@ function showEndMissionOverlay(result) {
             <p style="color: #eaf0ff; font-size: 1.5rem; margin: 30px 0;">
                 ${isWin ? "Target Neutralized. Sector 7-G is secure." : "Tactical systems offline. Fleet is retreating."}
             </p>
-            <button onclick="localStorage.clear(); window.location.reload();" 
+            <button onclick="returnToStarbase()" 
                     style="background: ${isWin ? '#2ecc71' : '#ff5c5c'}; 
                            color: white; 
                            border: none; 
@@ -660,6 +666,23 @@ function showEndMissionOverlay(result) {
 
     document.body.appendChild(overlay);
     console.log("Overlay successfully appended to body.");
+}
+
+// Clears the current game session but keeps the persistent player ID
+// so Mission Intel (wins/losses) survives across games and page refreshes.
+function returnToStarbase() {
+    const persistentPlayerId = localStorage.getItem("currentPlayerId");
+
+    // Wipe game-specific data only
+    localStorage.removeItem("currentGameId");
+    localStorage.removeItem("cpuPlayerId");
+
+    // Re-save the player ID so stats load on next page load
+    if (persistentPlayerId) {
+        localStorage.setItem("currentPlayerId", persistentPlayerId);
+    }
+
+    window.location.reload();
 }
 
 async function updateStatsBox(id = null) {

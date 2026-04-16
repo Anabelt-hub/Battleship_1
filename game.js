@@ -497,10 +497,10 @@ function renderBattleBoards() {
 async function firePhasers(row, col) {
     if (gameStatus !== "playing") return;
 
-    // Use a fresh ID from storage every shot to prevent turn desync
+    // Force-sync IDs from storage to satisfy the new Turn Enforcement
     const currentId = Number(localStorage.getItem("currentPlayerId"));
-
     const cell = document.getElementById(`cpu-cell-${row}-${col}`);
+    
     if (!cell || cell.classList.contains("hit") || cell.classList.contains("miss")) return;
 
     try {
@@ -517,47 +517,43 @@ async function firePhasers(row, col) {
         const data = await safeJson(res);
         
         if (!res.ok) {
-            // If the server blocks you, it means the turn hasn't switched yet.
+            // If the server says "Not your turn," the UI stays blue and logs the error
             console.error("Turn Blocked:", data.message);
-            addToLog("Phaser banks recharging... Wait for confirmation.", "miss");
             return;
         }
 
-        // Apply visual updates
+        // VISUAL FIX: Apply the hit/miss class IMMEDIATELY
         if (data.result === "hit") {
             cell.classList.add("hit");
-            cell.style.backgroundColor = "#ff5c5c"; 
-            addToLog(`[HIT] Sector ${row}-${col}`, "hit");
+            cell.style.backgroundColor = "#ff5c5c"; // Force Red for the video demo
+            addToLog(`[HIT] Sector ${row},${col}`, "hit");
         } else {
             cell.classList.add("miss");
-            cell.style.backgroundColor = "#4a9eff"; // Clear blue for miss
-            addToLog(`[MISS] Sector ${row}-${col}`, "miss");
+            cell.style.backgroundColor = "#4a9eff"; // Blue for miss
+            addToLog(`[MISS] Sector ${row},${col}`, "miss");
         }
 
         if (data.game_status === "finished") {
             gameStatus = "finished";
-            setTimeout(() => updateStatsBox(), 500);
+            setTimeout(() => updateStatsBox(), 500); // Persistent stats update
             showEndMissionOverlay("win"); 
             return; 
         }
 
-        // Only call CPU turn if the mission continues
-        setTimeout(cpuTurn, 1000);
+        // Trigger CPU only after a successful human shot
+        setTimeout(cpuTurn, 1200);
 
     } catch (err) {
-        console.error(err);
+        console.error("Fire error:", err);
     }
 }
 
 async function cpuTurn() {
     if (gameStatus !== "playing") return;
     
-    // Retrieve CPU ID specifically from storage
-    const activeCpuId = cpuPlayerId || localStorage.getItem('cpuPlayerId');
-    if (!activeCpuId) {
-        console.error("CPU Turn failed: No CPU Player ID found in storage.");
-        return;
-    }
+    // Ensure the CPU uses its specific ID assigned during mission start
+    const activeCpuId = Number(localStorage.getItem('cpuPlayerId'));
+    if (!activeCpuId) return;
 
     let row, col, target;
     let attempts = 0;
@@ -574,7 +570,7 @@ async function cpuTurn() {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-                player_id: Number(activeCpuId), // Fix: Send the CPU's ID
+                player_id: activeCpuId,
                 row,
                 col
             })
@@ -583,10 +579,9 @@ async function cpuTurn() {
         const data = await safeJson(res);
 
         if (!res.ok) {
-            // If the server says it's not the CPU's turn, wait and try one more time
+            // If the CPU is too fast for the DB, wait 1 second and retry
             if (res.status === 403) {
-                console.warn("CPU fired out of turn, retrying...");
-                setTimeout(cpuTurn, 2000);
+                setTimeout(cpuTurn, 1000);
                 return;
             }
             throw new Error(data.message);
@@ -595,21 +590,21 @@ async function cpuTurn() {
         if (target) {
             if (data.result === "hit") {
                 target.classList.add("hit");
-                target.style.backgroundColor = "#ff5c5c"; // Show damage on your ships
-                addToLog(`Alert: Enemy hit us at Sector ${row},${col}`, "hit");
+                target.style.backgroundColor = "#ff5c5c"; 
+                addToLog(`[ALERT] Enemy hit Sector ${row},${col}`, "hit");
             } else {
                 target.classList.add("miss");
-                addToLog(`Alert: Enemy missed at Sector ${row},${col}`, "miss");
+                addToLog(`[ALERT] Enemy missed Sector ${row},${col}`, "miss");
             }
         }
 
         if (data.game_status === "finished") {
             gameStatus = "finished";
-            setTimeout(() => updateStatsBox(playerId), 500);
+            setTimeout(() => updateStatsBox(), 500);
             showEndMissionOverlay("lose");
         }
     } catch (err) {
-        console.error("CPU Logic Error:", err);
+        console.error("CPU Turn Error:", err);
     }
 }
 

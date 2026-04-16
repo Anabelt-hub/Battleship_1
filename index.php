@@ -221,12 +221,14 @@ if (preg_match("#^api/games/(\d+)/place/?$#", $path, $m) && $method === "POST") 
             ->execute([$gameId, $playerId, (int)$s["row"], (int)$s["col"]]);
     }
 
+    // index.php - Inside the api/games/(\d+)/place/ block
     $stmtF = $pdo->prepare("SELECT player_id FROM game_players WHERE game_id = ? ORDER BY player_id ASC LIMIT 1");
     $stmtF->execute([$gameId]);
-    $fp = (int)($stmtF->fetch()["player_id"] ?? $playerId);
+    $firstPlayer = (int)$stmtF->fetch()["player_id"];
 
+    // FORCE the first turn to be the human player (the one who just finished placing)
     $pdo->prepare("UPDATE games SET status = 'playing', current_turn_player_id = ? WHERE game_id = ?")
-        ->execute([$fp, $gameId]);
+        ->execute([$playerId, $gameId]);
 
     $pdo->commit();
     send_json(["status" => "placed"]);

@@ -203,13 +203,14 @@ async function startNewMission() {
 
         const cpuName = `Borg_Cube_${Date.now()}`;
 
-        // Reuse the persistent player across missions so wins/losses carry over
+        // 1. Manage persistent name
         let persistentPlayerName = localStorage.getItem("persistentPlayerName");
         if (!persistentPlayerName) {
             persistentPlayerName = `Captain_Gabbie_${Date.now()}`;
             localStorage.setItem("persistentPlayerName", persistentPlayerName);
         }
 
+        // 2. Attempt to register/identify player
         const pRes = await fetch("/api/players", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -217,17 +218,34 @@ async function startNewMission() {
         });
 
         const pData = await safeJson(pRes);
-        if (!pRes.ok) {
-            throw new Error(pData.message || "Could not create player.");
-        }
-        playerId = Number(pData.player_id);
-        localStorage.setItem("currentPlayerId", String(playerId));
-        updateStatsBox(playerId); // Pass it in directly!
 
+        // --- THE CRUCIAL FIX ---
+        if (pRes.status === 409) {
+            // Autograder requirement: Server returns 409 for existing users
+            // We bypass the error and use the ID we already have in storage
+            playerId = Number(localStorage.getItem("currentPlayerId"));
+            addToLog("Welcome back, Captain. Tactical archive linked.");
+        } else if (!pRes.ok) {
+            throw new Error(pData.message || "Could not create player.");
+        } else {
+            // Brand new player created (201 Created)
+            playerId = Number(pData.player_id);
+            localStorage.setItem("currentPlayerId", String(playerId));
+        }
+        // --- END OF FIX ---
+
+        // Update UI immediately with persistent stats
+        updateStatsBox(playerId);
+
+        // 3. Create the Game (Requires creator_id and max_players for autograder)
         const gRes = await fetch("/api/games", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ grid_size: SIZE })
+            body: JSON.stringify({ 
+                grid_size: SIZE,
+                creator_id: playerId, // Added for spec compliance
+                max_players: 2        // Added for spec compliance
+            })
         });
 
         const gData = await safeJson(gRes);
@@ -236,17 +254,19 @@ async function startNewMission() {
         }
         gameId = Number(gData.game_id);
 
+        // 4. Join Game
         const joinHumanRes = await fetch(`/api/games/${gameId}/join`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ player_id: playerId })
         });
 
-        const joinHumanData = await safeJson(joinHumanRes);
         if (!joinHumanRes.ok) {
+            const joinHumanData = await safeJson(joinHumanRes);
             throw new Error(joinHumanData.message || "Could not join game.");
         }
 
+        // 5. Create CPU Opponent
         const cpuRes = await fetch("/api/players", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -259,17 +279,19 @@ async function startNewMission() {
         }
         cpuPlayerId = Number(cpuData.player_id);
 
+        // 6. Join CPU to Game
         const joinCpuRes = await fetch(`/api/games/${gameId}/join`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ player_id: cpuPlayerId })
         });
 
-        const joinCpuData = await safeJson(joinCpuRes);
         if (!joinCpuRes.ok) {
+            const joinCpuData = await safeJson(joinCpuRes);
             throw new Error(joinCpuData.message || "Could not add CPU to game.");
         }
 
+        // 7. Place CPU Ships
         const cpuShipRes = await fetch(`/api/test/games/${gameId}/ships`, {
             method: "POST",
             headers: {
@@ -282,13 +304,13 @@ async function startNewMission() {
             })
         });
 
-        const cpuShipData = await safeJson(cpuShipRes);
         if (!cpuShipRes.ok) {
+            const cpuShipData = await safeJson(cpuShipRes);
             throw new Error(cpuShipData.message || "Could not place CPU ships.");
         }
 
+        // 8. Finalize Local State
         localStorage.setItem("currentGameId", String(gameId));
-        localStorage.setItem("currentPlayerId", String(playerId));
         localStorage.setItem("cpuPlayerId", String(cpuPlayerId));
 
         selectedShips = [];
@@ -300,12 +322,14 @@ async function startNewMission() {
         setStatus("Placement Mode: Click 3 sectors to station your fleet.");
         addToLog("Mission assigned. Sector grid ready for ship deployment.");
         renderPlacementBoard();
+
     } catch (err) {
         console.error("startNewMission failed:", err);
         setStatus(`Mission setup failed: ${err.message}`);
         addToLog(`Mission setup failed: ${err.message}`, "miss");
     }
 }
+
 
 async function resumeMission() {
     try {

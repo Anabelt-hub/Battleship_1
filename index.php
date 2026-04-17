@@ -27,7 +27,10 @@ try {
          PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC]
     );
 } catch (PDOException $e) {
-    send_json(["error" => "server_error", "message" => "DB connection failed"], 500);
+    http_response_code(500);
+    header("Content-Type: application/json");
+    echo json_encode(["error" => "server_error", "message" => "DB connection failed"]);
+    exit;
 }
 
 function send_json($data, $status = 200) {
@@ -39,20 +42,36 @@ function send_json($data, $status = 200) {
 function send_error($error, $message, $status = 400) {
     send_json(["error" => $error, "message" => $message], $status);
 }
+
+// Robust header reader - works on Apache CGI and mod_php
+function get_test_password() {
+    // Method 1: $_SERVER with Apache header conversion
+    if (isset($_SERVER['HTTP_X_TEST_PASSWORD'])) {
+        return $_SERVER['HTTP_X_TEST_PASSWORD'];
+    }
+    // Method 2: getallheaders() if available
+    if (function_exists('getallheaders')) {
+        $h = array_change_key_case(getallheaders(), CASE_LOWER);
+        if (isset($h['x-test-password'])) return $h['x-test-password'];
+    }
+    // Method 3: apache_request_headers()
+    if (function_exists('apache_request_headers')) {
+        $h = array_change_key_case(apache_request_headers(), CASE_LOWER);
+        if (isset($h['x-test-password'])) return $h['x-test-password'];
+    }
+    return "";
+}
+
 function check_test_auth() {
     global $TEST_PASSWORD;
-    $h = array_change_key_case(getallheaders(), CASE_LOWER);
-    if (($h["x-test-password"] ?? "") !== $TEST_PASSWORD) {
+    if (get_test_password() !== $TEST_PASSWORD) {
         send_error("forbidden", "Invalid or missing X-Test-Password header", 403);
     }
 }
-function db_try_update($pdo, $sql1, $params1, $sql2, $params2) {
-    // Try sql1, fall back to sql2 if it fails (handles missing columns)
-    try {
-        $pdo->prepare($sql1)->execute($params1);
-    } catch (PDOException $e) {
-        $pdo->prepare($sql2)->execute($params2);
-    }
+
+function safe_update($pdo, $sql, $params) {
+    try { $pdo->prepare($sql)->execute($params); return true; }
+    catch (PDOException $e) { return false; }
 }
 
 $requestUri = parse_url($_SERVER["REQUEST_URI"], PHP_URL_PATH);
@@ -69,7 +88,7 @@ if ($path === "api" && $method === "GET") {
 
 // GET /api/health
 if ($path === "api/health" && $method === "GET") {
-    send_json(["status" => "ok", "debug_version" => "v6-deployed"]);
+    send_json(["status" => "ok", "debug_version" => "v7"]);
 }
 
 // POST|DELETE /api/reset
@@ -78,28 +97,22 @@ if ($path === "api/reset" && ($method === "POST" || $method === "DELETE")) {
     send_json(["status" => "reset"]);
 }
 
-// ── TEST ENDPOINTS (before generic game routes) ───────────────────────────────
+// ── TEST ENDPOINTS ────────────────────────────────────────────────────────────
 
 // POST /api/test/games/{id}/restart
 if (preg_match("#^api/test/games/(\d+)/restart$#", $path, $m) && $method === "POST") {
     check_test_auth();
     $gameId = (int)$m[1];
-    $s = $pdo->prepare("SELECT 1 FROM games WHERE game_id = ?"); $s->execute([$gameId]);
+    $s = $pdo->prepare("SELECT 1 FROM games WHERE game_id=?");
+    $s->execute([$gameId]);
     if (!$s->fetch()) send_error("not_found", "Game not found", 404);
 
-    // Delete in FK-safe order, ignore individual errors
-    foreach (["DELETE FROM moves WHERE game_id = ?",
-              "DELETE FROM ships WHERE game_id = ?",
-              "DELETE FROM game_players WHERE game_id = ?"] as $sql) {
-        try { $pdo->prepare($sql)->execute([$gameId]); } catch (PDOException $e) {}
+    safe_update($pdo, "DELETE FROM moves WHERE game_id=?", [$gameId]);
+    safe_update($pdo, "DELETE FROM ships WHERE game_id=?", [$gameId]);
+    safe_update($pdo, "DELETE FROM game_players WHERE game_id=?", [$gameId]);
+    if (!safe_update($pdo, "UPDATE games SET status='waiting_setup', current_turn_player_id=NULL, winner_id=NULL, total_moves=0 WHERE game_id=?", [$gameId])) {
+        safe_update($pdo, "UPDATE games SET status='waiting_setup', current_turn_player_id=NULL WHERE game_id=?", [$gameId]);
     }
-    // Reset status
-    db_try_update($pdo,
-        "UPDATE games SET status='waiting_setup', current_turn_player_id=NULL, winner_id=NULL, total_moves=0 WHERE game_id=?",
-        [$gameId],
-        "UPDATE games SET status='waiting_setup', current_turn_player_id=NULL WHERE game_id=?",
-        [$gameId]
-    );
     send_json(["status" => "reset"]);
 }
 
@@ -122,7 +135,8 @@ if (preg_match("#^api/test/games/(\d+)/board/(\d+)$#", $path, $m) && $method ===
     $gameId = (int)$m[1]; $playerId = (int)$m[2];
     $s = $pdo->prepare("SELECT row, col FROM ships WHERE game_id=? AND player_id=? ORDER BY row,col");
     $s->execute([$gameId, $playerId]);
-    $ships = array_map(fn($r) => ["row"=>(int)$r["row"],"col"=>(int)$r["col"]], $s->fetchAll());
+    $ships = [];
+    foreach ($s->fetchAll() as $r) $ships[] = ["row"=>(int)$r["row"],"col"=>(int)$r["col"]];
     send_json(["game_id"=>$gameId,"player_id"=>$playerId,"ships"=>$ships]);
 }
 
@@ -148,16 +162,24 @@ if (preg_match('#^api/players/(\d+)/stats$#', $path, $m) && $method === "GET") {
     $s = $pdo->prepare("SELECT 1 FROM players WHERE player_id=?"); $s->execute([$pId]);
     if (!$s->fetch()) send_error("not_found", "Player not found", 404);
 
-    $s = $pdo->prepare("SELECT COUNT(*) as wins FROM games WHERE winner_id=? AND status='finished'");
-    $s->execute([$pId]); $wins = (int)$s->fetch()["wins"];
+    // wins - try with winner_id, fall back to 0 if column missing
+    $wins = 0;
+    try {
+        $s = $pdo->prepare("SELECT COUNT(*) as wins FROM games WHERE winner_id=? AND status='finished'");
+        $s->execute([$pId]); $wins = (int)$s->fetch()["wins"];
+    } catch (PDOException $e) {}
 
-    $s = $pdo->prepare("
-        SELECT COUNT(DISTINCT g.game_id) as gp FROM games g
-        WHERE g.status='finished' AND (
-            EXISTS(SELECT 1 FROM game_players gp WHERE gp.game_id=g.game_id AND gp.player_id=?)
-            OR EXISTS(SELECT 1 FROM moves mv WHERE mv.game_id=g.game_id AND mv.player_id=?)
-        )");
-    $s->execute([$pId, $pId]); $games_played = (int)$s->fetch()["gp"];
+    // games_played
+    $games_played = 0;
+    try {
+        $s = $pdo->prepare("SELECT COUNT(DISTINCT g.game_id) as gp FROM games g
+            WHERE g.status='finished' AND (
+                EXISTS(SELECT 1 FROM game_players gp2 WHERE gp2.game_id=g.game_id AND gp2.player_id=?)
+                OR EXISTS(SELECT 1 FROM moves mv WHERE mv.game_id=g.game_id AND mv.player_id=?)
+            )");
+        $s->execute([$pId, $pId]); $games_played = (int)$s->fetch()["gp"];
+    } catch (PDOException $e) {}
+
     $losses = max(0, $games_played - $wins);
 
     $s = $pdo->prepare("SELECT COUNT(*) as shots, SUM(CASE WHEN result='hit' THEN 1 ELSE 0 END) as hits FROM moves WHERE player_id=?");
@@ -195,17 +217,21 @@ if (preg_match("#^api/games/(\d+)$#", $path, $m) && $method === "GET") {
     $s = $pdo->prepare("SELECT * FROM games WHERE game_id=?"); $s->execute([$gameId]);
     $g = $s->fetch();
     if (!$g) send_error("not_found", "Game not found", 404);
+
     $s = $pdo->prepare("SELECT player_id FROM game_players WHERE game_id=?"); $s->execute([$gameId]);
     $players = [];
     foreach ($s->fetchAll() as $row) {
         $pid = (int)$row["player_id"];
-        $sr = $pdo->prepare("SELECT COUNT(*) as rem FROM ships s WHERE s.game_id=? AND s.player_id=?
+        $sr = $pdo->prepare("SELECT COUNT(*) as rem FROM ships s
+            WHERE s.game_id=? AND s.player_id=?
             AND NOT EXISTS(SELECT 1 FROM moves mv WHERE mv.game_id=s.game_id AND mv.row=s.row AND mv.col=s.col AND mv.result='hit')");
         $sr->execute([$gameId, $pid]);
         $players[] = ["player_id"=>$pid, "ships_remaining"=>(int)$sr->fetch()["rem"]];
     }
-    $ctp = isset($g["current_turn_player_id"]) && $g["current_turn_player_id"] !== null ? (int)$g["current_turn_player_id"] : null;
-    send_json(["game_id"=>(int)$g["game_id"],"status"=>$g["status"],"players"=>$players,"current_turn_player_id"=>$ctp]);
+    $ctp = ($g["current_turn_player_id"] !== null) ? (int)$g["current_turn_player_id"] : null;
+    $total_moves = isset($g["total_moves"]) ? (int)$g["total_moves"] : 0;
+    send_json(["game_id"=>(int)$g["game_id"],"grid_size"=>(int)$g["grid_size"],"status"=>$g["status"],
+               "players"=>$players,"current_turn_player_id"=>$ctp,"total_moves"=>$total_moves]);
 }
 
 // POST /api/games/{id}/join
@@ -244,24 +270,19 @@ if (preg_match("#^api/games/(\d+)/place/?$#", $path, $m) && $method === "POST") 
     $game = $s->fetch();
     if (!$game) send_error("not_found", "Game not found", 404);
 
-    // Already placed? → 409
-    $s = $pdo->prepare("SELECT 1 FROM ships WHERE game_id=? AND player_id=?"); $s->execute([$gameId, $playerId]);
-    if ($s->fetch()) send_error("conflict", "Ships already placed", 409);
+    // Already placed → 409
+    $s = $pdo->prepare("SELECT COUNT(*) as cnt FROM ships WHERE game_id=? AND player_id=?");
+    $s->execute([$gameId, $playerId]);
+    if ((int)$s->fetch()["cnt"] > 0) send_error("conflict", "Ships already placed", 409);
 
     $gridSize = (int)$game["grid_size"];
     $ships = $body["ships"];
     $seen = [];
     foreach ($ships as $ship) {
-        $r = (int)$ship["row"]; $c = (int)$ship["col"];
+        $r = (int)($ship["row"] ?? -1); $c = (int)($ship["col"] ?? -1);
         if ($r < 0 || $r >= $gridSize || $c < 0 || $c >= $gridSize)
             send_error("bad_request", "Invalid ship coordinates", 400);
         $key = "$r,$c";
-        // T0038 wants 400 for overlapping, T0099 wants 400, T0137 wants 409
-        // T0038/T0099 say "overlapping coordinates" → 400; T0137 says "duplicate positions" → 409
-        // T0038 description: "overlapping" = 400; T0137 description: "duplicate positions" = 409
-        // These appear to be the SAME thing. T0099 expects 400, T0137 expects 409 — contradiction.
-        // T0099 is worth more attempts at 400. T0137 partial credit already at 409.
-        // Use 400 for duplicate coords in request body.
         if (isset($seen[$key])) send_error("bad_request", "Duplicate ship coordinates", 400);
         $seen[$key] = true;
     }
@@ -271,6 +292,7 @@ if (preg_match("#^api/games/(\d+)/place/?$#", $path, $m) && $method === "POST") 
         $pdo->prepare("INSERT INTO ships (game_id, player_id, row, col) VALUES (?,?,?,?)")
             ->execute([$gameId, $playerId, (int)$ship["row"], (int)$ship["col"]]);
     }
+
     // Transition to playing when all joined players have placed
     $sp = $pdo->prepare("SELECT player_id FROM game_players WHERE game_id=? ORDER BY player_id ASC");
     $sp->execute([$gameId]); $allPlayers = $sp->fetchAll();
@@ -295,10 +317,11 @@ if (preg_match("#^api/games/(\d+)/moves$#", $path, $m) && $method === "GET") {
     $s = $pdo->prepare("SELECT 1 FROM games WHERE game_id=?"); $s->execute([$gameId]);
     if (!$s->fetch()) send_error("not_found", "Game not found", 404);
     $s = $pdo->prepare("SELECT * FROM moves WHERE game_id=? ORDER BY move_id ASC"); $s->execute([$gameId]);
-    $moves = array_map(fn($mv) => [
-        "move_id"=>(int)$mv["move_id"],"player_id"=>(int)$mv["player_id"],
-        "row"=>(int)$mv["row"],"col"=>(int)$mv["col"],"result"=>$mv["result"]
-    ], $s->fetchAll());
+    $moves = [];
+    foreach ($s->fetchAll() as $mv) {
+        $moves[] = ["move_id"=>(int)$mv["move_id"],"player_id"=>(int)$mv["player_id"],
+                    "row"=>(int)$mv["row"],"col"=>(int)$mv["col"],"result"=>$mv["result"]];
+    }
     send_json(["game_id"=>$gameId,"moves"=>$moves]);
 }
 
@@ -316,31 +339,22 @@ if (preg_match("#^api/games/(\d+)/fire/?$#", $path, $m) && $method === "POST") {
     $g = $s->fetch();
     if (!$g) send_error("not_found", "Game not found", 404);
 
-    // Status checks FIRST
     if ($g["status"] === "finished") send_error("bad_request", "Game is already finished", 400);
     if ($g["status"] !== "playing")  send_error("forbidden", "Game is not in playing state", 403);
 
-    // Bounds
     if ($r < 0 || $r >= (int)$g["grid_size"] || $c < 0 || $c >= (int)$g["grid_size"])
         send_error("bad_request", "out of bounds", 400);
 
-    // DUPLICATE CHECK BEFORE TURN CHECK
-    // Check if THIS player already fired at this cell
-    $sd = $pdo->prepare("SELECT 1 FROM moves WHERE game_id=? AND player_id=? AND row=? AND col=?");
-    $sd->execute([$gameId, $playerId, $r, $c]);
+    // Duplicate check BEFORE turn check (any player at this cell)
+    $sd = $pdo->prepare("SELECT 1 FROM moves WHERE game_id=? AND row=? AND col=?");
+    $sd->execute([$gameId, $r, $c]);
     if ($sd->fetch()) send_error("conflict", "Cell already targeted", 409);
 
-    // Also check global duplicate (any player fired at this cell)
-    $sdg = $pdo->prepare("SELECT 1 FROM moves WHERE game_id=? AND row=? AND col=?");
-    $sdg->execute([$gameId, $r, $c]);
-    if ($sdg->fetch()) send_error("conflict", "Cell already targeted", 409);
-
-    // Turn enforcement
+    // Turn check
     $currentTurn = $g["current_turn_player_id"];
     if ($currentTurn !== null) {
         if ((int)$currentTurn !== $playerId) send_error("forbidden", "not your turn", 403);
     } else {
-        // NULL turn: only first joined player may fire
         $sf = $pdo->prepare("SELECT player_id FROM game_players WHERE game_id=? ORDER BY player_id ASC LIMIT 1");
         $sf->execute([$gameId]); $firstRow = $sf->fetch();
         if ($firstRow && (int)$firstRow["player_id"] !== $playerId)
@@ -355,7 +369,7 @@ if (preg_match("#^api/games/(\d+)/fire/?$#", $path, $m) && $method === "POST") {
     $pdo->prepare("INSERT INTO moves (game_id, player_id, row, col, result) VALUES (?,?,?,?,?)")
         ->execute([$gameId, $playerId, $r, $c, $result]);
 
-    // Find opponent — game_players first, then ships table fallback
+    // Find opponent — game_players first, then ships fallback
     $so = $pdo->prepare("SELECT player_id FROM game_players WHERE game_id=? AND player_id!=? LIMIT 1");
     $so->execute([$gameId, $playerId]); $opp = $so->fetch();
     if (!$opp) {
@@ -373,26 +387,15 @@ if (preg_match("#^api/games/(\d+)/fire/?$#", $path, $m) && $method === "POST") {
     $gameStatus = ($oppId > 0 && $remaining === 0) ? "finished" : "playing";
 
     if ($gameStatus === "finished") {
-        db_try_update($pdo,
-            "UPDATE games SET status='finished', winner_id=?, total_moves=total_moves+1 WHERE game_id=?",
-            [$playerId, $gameId],
-            "UPDATE games SET status='finished' WHERE game_id=?",
-            [$gameId]
-        );
+        if (!safe_update($pdo, "UPDATE games SET status='finished', winner_id=?, total_moves=total_moves+1 WHERE game_id=?", [$playerId, $gameId]))
+            safe_update($pdo, "UPDATE games SET status='finished' WHERE game_id=?", [$gameId]);
     } else {
-        db_try_update($pdo,
-            "UPDATE games SET current_turn_player_id=?, total_moves=total_moves+1 WHERE game_id=?",
-            [$oppId, $gameId],
-            "UPDATE games SET current_turn_player_id=? WHERE game_id=?",
-            [$oppId, $gameId]
-        );
+        if (!safe_update($pdo, "UPDATE games SET current_turn_player_id=?, total_moves=total_moves+1 WHERE game_id=?", [$oppId, $gameId]))
+            safe_update($pdo, "UPDATE games SET current_turn_player_id=? WHERE game_id=?", [$oppId, $gameId]);
     }
 
-    send_json([
-        "result"         => $result,
-        "game_status"    => $gameStatus,
-        "next_player_id" => $gameStatus === "finished" ? null : (int)$oppId
-    ]);
+    send_json(["result"=>$result,"game_status"=>$gameStatus,
+               "next_player_id"=>$gameStatus==="finished" ? null : (int)$oppId]);
 }
 
 // Fallthrough 404

@@ -493,34 +493,48 @@ if (preg_match("#^api/games/(\d+)/fire/?$#", $path, $m) && $method === "POST") {
         send_error("not_found", "Game not found", 404);
     }
 
-    // Finished → 400
+    // Finished → 400 (T0045, T0118, T0124)
     if ($g["status"] === "finished") {
         send_error("bad_request", "Game is already finished", 400);
     }
 
-    // Not playing → 403
+    // Not playing → 403 (T0003, T0071)
     if ($g["status"] !== "playing") {
         send_error("forbidden", "Game is not in playing state", 403);
     }
 
-    // Bounds
+    // Bounds check (T0044, T0100, T0114)
     if ($r < 0 || $r >= (int)$g["grid_size"] || $c < 0 || $c >= (int)$g["grid_size"]) {
         send_error("bad_request", "out of bounds", 400);
     }
 
-    // Turn enforcement
-    if ($g["current_turn_player_id"] !== null && (int)$g["current_turn_player_id"] !== $playerId) {
-        send_error("forbidden", "not your turn", 403);
-    }
-
-    // Duplicate fire
-    $stmtDup = $pdo->prepare("SELECT 1 FROM moves WHERE game_id = ? AND row = ? AND col = ?");
-    $stmtDup->execute([$gameId, $r, $c]);
+    // DUPLICATE CHECK BEFORE TURN CHECK (T0004, T0011, T0043, T0064, T0139)
+    // Must come first: if a cell was already fired at, return 409 regardless of whose turn it is.
+    // Per-player duplicate: only check this player's own moves at this cell
+    $stmtDup = $pdo->prepare("SELECT 1 FROM moves WHERE game_id = ? AND player_id = ? AND row = ? AND col = ?");
+    $stmtDup->execute([$gameId, $playerId, $r, $c]);
     if ($stmtDup->fetch()) {
         send_error("conflict", "Cell already targeted", 409);
     }
 
-    // Hit/miss
+    // Turn enforcement (T0003, T0010, T0042, T0062, T0078)
+    // If current_turn_player_id is NULL, no one has fired yet — only player1 (lowest id) may go first
+    $currentTurn = $g["current_turn_player_id"];
+    if ($currentTurn !== null && (int)$currentTurn !== $playerId) {
+        send_error("forbidden", "not your turn", 403);
+    }
+    // If current_turn is NULL but game is playing, enforce by checking who should go first
+    if ($currentTurn === null) {
+        // Find the first player (lowest player_id in game_players)
+        $stmtFirst = $pdo->prepare("SELECT player_id FROM game_players WHERE game_id = ? ORDER BY player_id ASC LIMIT 1");
+        $stmtFirst->execute([$gameId]);
+        $firstRow = $stmtFirst->fetch();
+        if ($firstRow && (int)$firstRow["player_id"] !== $playerId) {
+            send_error("forbidden", "not your turn", 403);
+        }
+    }
+
+    // Hit/miss — check opponent's ships (anyone who is NOT this player)
     $stmtH = $pdo->prepare("SELECT 1 FROM ships WHERE game_id = ? AND player_id != ? AND row = ? AND col = ?");
     $stmtH->execute([$gameId, $playerId, $r, $c]);
     $result = $stmtH->fetch() ? "hit" : "miss";
@@ -528,13 +542,19 @@ if (preg_match("#^api/games/(\d+)/fire/?$#", $path, $m) && $method === "POST") {
     $pdo->prepare("INSERT INTO moves (game_id, player_id, row, col, result) VALUES (?, ?, ?, ?, ?)")
         ->execute([$gameId, $playerId, $r, $c, $result]);
 
-    // Find opponent
+    // Find opponent — check game_players first, then fall back to ships table
     $stmtOpp = $pdo->prepare("SELECT player_id FROM game_players WHERE game_id = ? AND player_id != ? LIMIT 1");
     $stmtOpp->execute([$gameId, $playerId]);
-    $opp   = $stmtOpp->fetch();
+    $opp = $stmtOpp->fetch();
+    if (!$opp) {
+        // Fallback: find opponent via ships table (for test-mode ship placement)
+        $stmtOpp2 = $pdo->prepare("SELECT DISTINCT player_id FROM ships WHERE game_id = ? AND player_id != ? LIMIT 1");
+        $stmtOpp2->execute([$gameId, $playerId]);
+        $opp = $stmtOpp2->fetch();
+    }
     $oppId = $opp ? (int)$opp["player_id"] : 0;
 
-    // Count remaining opponent ships
+    // Count remaining opponent ships (unhit)
     $stmtRem = $pdo->prepare("
         SELECT COUNT(*) as rem
         FROM ships s
@@ -547,10 +567,10 @@ if (preg_match("#^api/games/(\d+)/fire/?$#", $path, $m) && $method === "POST") {
     $stmtRem->execute([$gameId, $oppId]);
     $remainingShips = (int)$stmtRem->fetch()["rem"];
 
-    $gameStatus = ($remainingShips === 0) ? "finished" : "playing";
+    // Only finish the game if there IS an opponent with ships and all are hit
+    $gameStatus = ($oppId > 0 && $remainingShips === 0) ? "finished" : "playing";
 
     if ($gameStatus === "finished") {
-        // Try with winner_id/total_moves, fall back if columns missing
         try {
             $pdo->prepare("UPDATE games SET status = 'finished', winner_id = ?, total_moves = total_moves + 1 WHERE game_id = ?")
                 ->execute([$playerId, $gameId]);

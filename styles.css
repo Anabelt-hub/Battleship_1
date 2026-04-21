@@ -247,3 +247,13 @@ button:hover:not(:disabled) {
   gap: 20px;
   z-index: 100;
 }
+
+/* Fix Screen 4 Placement Grid */
+#placementBoard.board {
+    display: grid;
+    grid-template-columns: repeat(11, 32px); /* 10 cells + 1 for labels */
+    grid-template-rows: repeat(11, 32px);
+    gap: 4px;
+    width: max-content;
+    margin: 0 auto;
+}

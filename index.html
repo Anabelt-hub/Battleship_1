@@ -6,20 +6,27 @@
   <title>Starfleet Tactical Simulator</title>
   <link rel="stylesheet" href="styles.css" />
   <style>
-    /* New styles for placement mode */
-    .ship-selected { background-color: #2ecc71 !important; border: 2px solid #27ae60; }
-    .placement-active { cursor: crosshair; outline: 2px solid #2ecc71; }
-    #btnConfirmPlacement:disabled { opacity: 0.5; cursor: not-allowed; }
     .hidden { display: none; }
-    
-    /* Ensure the side panel stacks correctly */
-    .side-panel {
+    .side-panel { display: flex; flex-direction: column; gap: 20px; }
+    #stats-container { min-height: 100px; }
+    .session-controls {
       display: flex;
-      flex-direction: column;
-      gap: 20px;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      margin-top: 12px;
     }
-    #stats-container {
-      min-height: 100px;
+    .session-controls input {
+      background: #0d1222;
+      color: #fff;
+      border: 1px solid #4a9eff;
+      border-radius: 6px;
+      padding: 10px 12px;
+      min-width: 170px;
+    }
+    #roomCode {
+      color: #ffcc66;
+      font-weight: bold;
     }
   </style>
 </head>
@@ -29,16 +36,17 @@
       <div class="badge">★</div>
       <div>
         <h1>Starfleet Tactical Simulator</h1>
-        <p class="subtitle">Sector grid engagement • Phaser/torpedo targeting • Cloaked enemy vessels</p>
+        <p class="subtitle">2-player room mode • Turn-based combat • Share a room code to battle</p>
       </div>
     </div>
 
     <div class="controls">
-      <button id="btnNewGame">New Mission</button>
+      <button id="btnNewGame">Create Room</button>
+      <button id="btnJoinGame">Join Room</button>
       <button id="btnConfirmPlacement" class="success" disabled>Confirm Ship Positions</button>
       <button id="btnResume">Resume Mission</button>
       <button id="btnClearSave">Clear Save</button>
-      <button id="btnReveal">Scan (Reveal)</button>
+      <button id="btnReveal">Scan</button>
       <button id="btnUndo">Undo Selection</button>
       <button id="btnReset" class="danger">Reset Simulation</button>
     </div>
@@ -47,6 +55,11 @@
   <main class="layout">
     <section class="panel">
       <h2>Federation Task Force</h2>
+      <div class="session-controls">
+        <input id="playerName" type="text" placeholder="Your captain name" maxlength="30" />
+        <input id="joinGameId" type="number" placeholder="Room code to join" min="1" />
+      </div>
+      <p id="roomCode" class="hint">No active room.</p>
       <div id="playerBoard" class="board" aria-label="Federation sector grid"></div>
       <p id="placementHint" class="hint"><strong>Placement Mode:</strong> Click 3 sectors to station your fleet.</p>
     </section>
@@ -54,37 +67,37 @@
     <section class="panel">
       <h2>Enemy Sector Grid</h2>
       <div id="cpuBoard" class="board" aria-label="Enemy sector grid"></div>
-      <p class="hint">Click a sector to fire. Enemy ships are cloaked (unless you scan).</p>
+      <p class="hint">You can only fire on your turn. Enemy ships stay hidden until you hit them.</p>
     </section>
 
     <div class="side-panel">
-        <section class="panel">
-          <h2>Mission Intel</h2>
-          <div id="stats-container">
-            <div style="border: 1px solid #4a9eff; padding: 15px; background: rgba(13, 18, 34, 0.8); color: white; border-radius: 5px; font-family: monospace;">
-                <h3 style="color: #4a9eff; margin-top: 0; border-bottom: 1px solid #4a9eff; font-size: 1rem;">TACTICAL ARCHIVE</h3>
-                <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                    <span>MISSIONS WON:</span> <span style="color: #2ecc71; font-weight: bold;">0</span>
-                </div>
-                <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-                    <span>MISSIONS LOST:</span> <span style="color: #ff5c5c; font-weight: bold;">0</span>
-                </div>
-                <div style="display: flex; justify-content: space-between;">
-                    <span>FIRE ACCURACY:</span> <span style="color: #ffcc66; font-weight: bold;">0%</span>
-                </div>
+      <section class="panel">
+        <h2>Mission Intel</h2>
+        <div id="stats-container">
+          <div style="border: 1px solid #4a9eff; padding: 15px; background: rgba(13, 18, 34, 0.8); color: white; border-radius: 5px; font-family: monospace;">
+            <h3 style="color: #4a9eff; margin-top: 0; border-bottom: 1px solid #4a9eff; font-size: 1rem;">TACTICAL ARCHIVE</h3>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+              <span>MISSIONS WON:</span> <span style="color: #2ecc71; font-weight: bold;">0</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+              <span>MISSIONS LOST:</span> <span style="color: #ff5c5c; font-weight: bold;">0</span>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+              <span>FIRE ACCURACY:</span> <span style="color: #ffcc66; font-weight: bold;">0%</span>
             </div>
           </div>
-        </section>
+        </div>
+      </section>
 
-        <section class="panel logpanel">
-          <h2>Captain’s Log</h2>
-          <div id="log" class="log" aria-label="Battle history log"></div>
-        </section>
+      <section class="panel logpanel">
+        <h2>Captain’s Log</h2>
+        <div id="log" class="log" aria-label="Battle history log"></div>
+      </section>
     </div>
   </main>
 
   <footer class="statusbar">
-    <div id="status" class="status">Press “New Mission” to begin.</div>
+    <div id="status" class="status">Press “Create Room” to begin.</div>
     <div id="stats" class="status"></div>
     <div id="serverScore" class="status"></div>
   </footer>

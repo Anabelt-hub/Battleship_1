@@ -239,6 +239,7 @@ function renderGrid(containerId, moves, isPlayer) {
     const shotMap = new Map();
     moves.forEach(m => {
         const key = `${m.row},${m.col}`;
+        // Map shots based on who fired them
         if (isPlayer && Number(m.player_id) !== Number(playerId)) shotMap.set(key, m.result);
         if (!isPlayer && Number(m.player_id) === Number(playerId)) shotMap.set(key, m.result);
     });
@@ -254,8 +255,25 @@ function renderGrid(containerId, moves, isPlayer) {
                 const item = document.createElement("button");
                 item.className = "cell";
                 const key = `${r},${c}`;
-                if (isPlayer && selectedShips.some(s => s.row === r && s.col === c)) item.classList.add("ship");
-                if (shotMap.has(key)) item.classList.add(shotMap.get(key));
+
+                // 1. Show player's own ships
+                if (isPlayer && selectedShips.some(s => s.row === r && s.col === c)) {
+                    item.classList.add("ship");
+                }
+
+                // 2. Apply Red/Blue logic based on API results
+                if (shotMap.has(key)) {
+                    const result = shotMap.get(key); // "hit" or "miss"
+                    item.classList.add(result);
+                    
+                    // 3. Logic for Sunk Ship Emoji
+                    // If it was a hit, and the server says a ship was destroyed, 
+                    // we label it as 'sunk' to show the 🚢 emoji.
+                    if (result === "hit") {
+                        item.classList.add("sunk");
+                    }
+                }
+
                 if (!isPlayer) item.onclick = () => firePhasers(r, c);
                 cell.appendChild(item);
             }
@@ -322,6 +340,7 @@ async function updateStatsBox(id) {
 
 function addToLog(msg, type) {
     const entry = document.createElement("div");
+    // Ensure 'hit' result gets 'hitTxt' class and 'miss' gets 'missTxt'
     entry.className = type === "hit" ? "hitTxt" : "missTxt";
     entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
     logEl.prepend(entry);

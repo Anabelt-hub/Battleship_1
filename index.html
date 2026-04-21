@@ -1,247 +1,132 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Starfleet Tactical Simulator</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css"/>
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    .hidden { display: none !important; }
+    .screen { animation: fadeIn 0.3s ease; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    
+    /* Universal Theme Toggle styling */
+    .topbar-controls { display: flex; gap: 15px; align-items: center; }
+    #themeToggle { cursor: pointer; padding: 8px 12px; border-radius: 20px; border: 1px solid #4a9eff; background: transparent; color: #4a9eff; }
+    
+    /* Layout Helpers */
+    .view-container { padding: 20px; max-width: 1200px; margin: 0 auto; }
+    .grid-label { display: flex; justify-content: center; align-items: center; font-weight: bold; color: #4a9eff; }
+    .scroll-list { max-height: 400px; overflow-y: auto; border: 1px solid #283458; border-radius: 8px; margin-top: 10px; }
+    .game-item { display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #283458; align-items: center; }
+  </style>
 </head>
-<body>
-
-  <!-- ═══════════════════ TOPBAR ═══════════════════ -->
-  <header class="topbar">
+<body class="dark-theme"> <header class="topbar">
     <div class="brand">
       <div class="badge">★</div>
       <div>
-        <h1>STARFLEET TACTICAL</h1>
-        <p id="activeServerUrl" class="subtitle">⚡ No server connected</p>
+        <h1>Starfleet Tactical Simulator</h1>
+        <p id="activeServerUrl" class="subtitle">Not Connected</p>
       </div>
     </div>
-    <div class="topbar-right">
-      <button id="themeToggle" class="theme-btn">☀ Light Mode</button>
+    <div class="topbar-controls">
+      <button id="themeToggle">🌓 Switch Theme</button>
     </div>
   </header>
 
-  <!-- ═══════════════════ SCREEN 1: SERVER ═══════════════════ -->
-  <section id="screen-server" class="screen active">
-    <div class="screen-inner">
-      <div class="step-badge">STEP 1 OF 6</div>
-      <h2 class="screen-title">Connect to a Command Server</h2>
-      <p class="screen-desc">Select a server from the list below to begin. Your team's server is selected by default. You can switch to any other team's server at any time.</p>
-
-      <div class="form-card">
-        <label class="field-label">SELECT SERVER</label>
-        <select id="serverSelect" class="big-select">
-          <option value="https://battleship-1-qpm6.onrender.com">🟢 Our Team Server (Default)</option>
-          <!-- Additional servers added here later -->
-        </select>
-
-        <label class="field-label" style="margin-top:10px;">OR ENTER CUSTOM URL</label>
-        <input id="customServerUrl" type="text" class="big-input" placeholder="https://other-teams-server.onrender.com"/>
-
-        <div id="serverStatus" class="status-badge hidden"></div>
-
-        <button id="btnConnectServer" class="btn-primary btn-xl">
-          ⚡ Connect to Server
-        </button>
-        <p class="field-hint">Once connected, you'll proceed to login. The server indicator at the top will always show which server you're currently connected to.</p>
+  <main class="view-container">
+    
+    <section id="screen-server" class="screen panel">
+      <h2>Step 1: Establish Tactical Uplink</h2>
+      <p class="hint">Select a command server to begin mission operations.</p>
+      <div class="session-controls">
+        <select id="serverSelect" style="flex: 1; padding: 10px; background: #0d1222; color: #fff; border: 1px solid #4a9eff; border-radius: 6px;">
+          <option value="https://battleship-1-qpm6.onrender.com">Our Team Server (Default)</option>
+          </select>
+        <button id="btnConnectServer" class="success">Connect to Server</button>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- ═══════════════════ SCREEN 2: LOGIN ═══════════════════ -->
-  <section id="screen-login" class="screen hidden">
-    <div class="screen-inner">
-      <div class="step-badge">STEP 2 OF 6</div>
-      <h2 class="screen-title">Captain Identification</h2>
-      <p class="screen-desc">Enter your username. If you've played before, your stats will be loaded. New username? A fresh profile will be created for you.</p>
-
-      <div class="form-card">
-        <label class="field-label">YOUR USERNAME</label>
-        <input id="playerName" type="text" class="big-input" placeholder="e.g. Admiral_Taylor" maxlength="30" autocomplete="off"/>
-        <p class="field-hint">Alphanumeric characters and underscores only. Max 30 characters.</p>
-
-        <div id="loginStatus" class="status-badge hidden"></div>
-
-        <button id="btnLogin" class="btn-primary btn-xl">
-          🚀 Login to Fleet
-        </button>
+    <section id="screen-login" class="screen panel hidden">
+      <h2>Step 2: Captain's Identification</h2>
+      <p class="hint">Identify yourself to retrieve tactical history or create a new profile.</p>
+      <div class="session-controls">
+        <input id="playerName" type="text" placeholder="Enter captain name..." maxlength="30" />
+        <button id="btnLogin" class="success">Login to Fleet</button>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- ═══════════════════ SCREEN 3: LOBBY ═══════════════════ -->
-  <section id="screen-lobby" class="screen hidden">
-    <div class="screen-inner wide">
-      <div class="step-badge">STEP 3 OF 6</div>
-      <h2 class="screen-title">Mission Control — Create or Join</h2>
-      <p class="screen-desc">Create a new battle room or join an existing one. Share your Room ID with your opponent so they can find and join your game.</p>
-
-      <div class="lobby-grid">
-
-        <!-- Create Game -->
-        <div class="form-card">
-          <h3 class="card-title">⚔ Create New Battle Room</h3>
-          <label class="field-label">GRID SIZE <span class="muted-label">(5–15)</span></label>
-          <input id="gridSizeInput" type="number" value="10" min="5" max="15" class="big-input"/>
-
-          <label class="field-label">MAX PLAYERS</label>
-          <input id="maxPlayersInput" type="number" value="2" min="2" max="10" class="big-input"/>
-
-          <button id="btnCreateRoom" class="btn-primary">
-            🛸 Initialize Battle Room
-          </button>
-        </div>
-
-        <!-- Join Game -->
-        <div class="form-card">
-          <h3 class="card-title">📡 Join an Existing Room</h3>
-          <label class="field-label">SEARCH BY ROOM ID</label>
-          <div class="input-row">
-            <input id="searchGameId" type="number" placeholder="Enter Room #" class="big-input" style="flex:1"/>
-            <button id="btnJoinById" class="btn-secondary">Join</button>
+    <section id="screen-lobby" class="screen hidden">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+        <div class="panel">
+          <h3>Create New Mission</h3>
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <label>Grid Size: <input id="gridSizeInput" type="number" value="10" min="5" max="15" /></label>
+            <label>Max Players: <input id="maxPlayersInput" type="number" value="2" min="2" max="2" /></label>
+            <button id="btnCreateRoom" class="success">Initialize Room</button>
           </div>
-
-          <label class="field-label" style="margin-top:16px;">ACTIVE ROOMS <button id="btnRefreshLobby" class="btn-tiny">↻ Refresh</button></label>
+        </div>
+        <div class="panel">
+          <h3>Join Active Mission</h3>
+          <input id="searchGameId" type="number" placeholder="Search by Room ID..." style="width: 100%; margin-bottom: 10px;" />
           <div id="gameList" class="scroll-list">
-            <p class="list-empty">Loading rooms…</p>
+            <p class="hint" style="padding: 10px;">Retrieving active signals...</p>
           </div>
         </div>
-
       </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- ═══════════════════ SCREEN 4: PLACEMENT ═══════════════════ -->
-  <section id="screen-placement" class="screen hidden">
-    <div class="screen-inner wide">
-      <div class="step-badge">STEP 4 OF 6</div>
-      <h2 class="screen-title">Deploy Your Fleet</h2>
-
-      <div class="placement-layout">
-
-        <div class="placement-instructions form-card">
-          <h3 class="card-title">📋 Deployment Orders</h3>
-          <div id="shipChecklist" class="ship-checklist"></div>
-          <div id="placementStatus" class="placement-status-msg"></div>
-          <div class="placement-actions">
-            <button id="btnConfirmPlacement" class="btn-primary" disabled>
-              ✅ Confirm Ship Positions
-            </button>
-            <button id="btnResetPlacement" class="btn-danger">
-              ↺ Reset Fleet
-            </button>
-          </div>
-          <p class="field-hint">Click cells on the grid to place each ship. Ships must be placed in a straight line (horizontal or vertical). Click a placed cell to remove it.</p>
+    <section id="screen-placement" class="screen panel hidden">
+      <h2>Step 3: Fleet Deployment</h2>
+      <p id="placementInstructions" style="color: #ffcc66; font-weight: bold; font-size: 1.1rem;"></p>
+      <div style="display: flex; gap: 20px; align-items: start;">
+        <div id="placementBoard" class="board"></div>
+        <div class="controls" style="display: flex; flex-direction: column; gap: 10px;">
+          <button id="btnConfirmPlacement" class="success" disabled>Confirm Positions</button>
+          <button id="btnResetPlacement" class="danger">Reset Fleet</button>
+          <button id="btnUndoPlacement">Undo Selection</button>
         </div>
+      </div>
+    </section>
 
-        <div>
-          <p class="board-label">YOUR GRID — Click to place ships</p>
-          <div id="placementBoardWrap" class="board-wrap">
-            <div id="placementBoard" class="board-with-labels"></div>
-          </div>
+    <section id="screen-game" class="screen hidden">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+        <h2 id="turnIndicator">TACTICAL ENGAGEMENT</h2>
+        <div id="gameStats" style="font-family: monospace; color: #4a9eff;"></div>
+      </div>
+      <div class="layout" style="grid-template-columns: 1fr 1fr 350px;">
+        <div class="panel">
+          <h3>Federation Grid</h3>
+          <div id="activePlayerBoard" class="board"></div>
         </div>
-
-      </div>
-    </div>
-  </section>
-
-  <!-- ═══════════════════ SCREEN 5: GAME ═══════════════════ -->
-  <section id="screen-game" class="screen hidden">
-    <div class="screen-inner wide">
-
-      <div id="turnBanner" class="turn-banner your-turn">
-        ⚡ YOUR TURN — Select a target on the Enemy Sector grid
-      </div>
-
-      <div class="game-layout">
-
-        <div class="game-boards">
-          <div class="board-section">
-            <h3 class="board-title">🛡 YOUR GRID — Federation Fleet</h3>
-            <div id="activeBoardWrap" class="board-wrap">
-              <div id="activePlayerBoard" class="board-with-labels"></div>
-            </div>
-          </div>
-          <div class="board-section">
-            <h3 class="board-title">🎯 ENEMY SECTOR — Click to Fire</h3>
-            <div id="enemyBoardWrap" class="board-wrap">
-              <div id="activeEnemyBoard" class="board-with-labels"></div>
-            </div>
+        <div class="panel">
+          <h3>Enemy Sector</h3>
+          <div id="activeEnemyBoard" class="board"></div>
+        </div>
+        <div class="side-panel">
+          <div id="stats-container"></div>
+          <div class="panel logpanel">
+            <h3>Captain's Log</h3>
+            <div id="log" class="log"></div>
           </div>
         </div>
-
-        <div class="game-sidebar">
-          <div class="form-card stat-card">
-            <h3 class="card-title">📊 Battle Statistics</h3>
-            <div id="liveStats" class="stat-grid">
-              <div class="stat-item"><div class="stat-val" id="statHits">0</div><div class="stat-name">HITS</div></div>
-              <div class="stat-item"><div class="stat-val" id="statMisses">0</div><div class="stat-name">MISSES</div></div>
-              <div class="stat-item"><div class="stat-val" id="statAccuracy">0%</div><div class="stat-name">ACCURACY</div></div>
-              <div class="stat-item"><div class="stat-val" id="statShipsSunk">0</div><div class="stat-name">SHIPS SUNK</div></div>
-            </div>
-          </div>
-
-          <div class="form-card log-card">
-            <h3 class="card-title">📜 Captain's Log</h3>
-            <div id="log" class="captain-log"></div>
-          </div>
-        </div>
-
       </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- ═══════════════════ SCREEN 6: SUMMARY ═══════════════════ -->
-  <section id="screen-summary" class="screen hidden">
-    <div class="screen-inner">
-
-      <div id="missionResult" class="mission-result">—</div>
-      <p id="missionSubtitle" class="screen-desc" style="text-align:center;"></p>
-
-      <div class="summary-grid">
-
-        <div class="form-card">
-          <h3 class="card-title">⚔ Battle Stats</h3>
-          <div id="summaryBattleStats" class="stat-grid"></div>
+    <section id="screen-summary" class="screen panel hidden">
+      <h1 id="missionResult" style="text-align: center; font-size: 3rem; margin: 0;"></h1>
+      <div id="summaryContent" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px;">
         </div>
-
-        <div class="form-card">
-          <h3 class="card-title">🏆 Career Record</h3>
-          <div id="summaryCareerStats" class="stat-grid"></div>
-        </div>
-
+      <div style="display: flex; justify-content: center; gap: 20px; margin-top: 30px;">
+        <button id="btnReturnLobby" class="success">New Mission</button>
+        <button id="btnDisconnect" class="danger">Disconnect Server</button>
       </div>
+    </section>
 
-      <div class="summary-boards">
-        <div>
-          <p class="board-label">YOUR FINAL GRID</p>
-          <div id="summaryPlayerBoard" class="board-with-labels small-board"></div>
-        </div>
-        <div>
-          <p class="board-label">ENEMY FINAL GRID</p>
-          <div id="summaryEnemyBoard" class="board-with-labels small-board"></div>
-        </div>
-      </div>
+  </main>
 
-      <div class="form-card" style="margin-top:24px;">
-        <h3 class="card-title">📜 Full Captain's Log</h3>
-        <div id="summaryLog" class="captain-log"></div>
-      </div>
-
-      <div class="summary-actions">
-        <button id="btnReturnLobby" class="btn-primary">⚔ New Mission</button>
-        <button id="btnDisconnect" class="btn-danger">🔌 Disconnect Server</button>
-      </div>
-
-    </div>
-  </section>
-
-  <!-- ═══════════════════ STATUS BAR ═══════════════════ -->
   <footer class="statusbar">
-    <span id="status">Awaiting uplink…</span>
+    <div id="status" class="status">Uplink required.</div>
   </footer>
 
   <script src="game.js"></script>

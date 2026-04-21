@@ -15,16 +15,16 @@
   --panelShadow: 0 10px 30px rgba(0, 0, 0, 0.22);
 }
 
-/* Light Mode Override */
+/* Light Mode Override - Matches JS 'light-theme' toggle */
 body.light-theme {
   --bg: #f0f4f8;
-  --card: rgba(255, 255, 255, 0.95);
+  --card: #ffffff;
   --text: #1a1f2e;
   --muted: #5a6782;
   --border: #cbd5e1;
   --accent: #2563eb;
-  --cell: #f8fafc;
-  --cellHover: #e2e8f0;
+  --cell: #e2e8f0;
+  --cellHover: #cbd5e1;
   --hit: #dc2626;
   --miss: #3b82f6;
   --ship: #d97706;
@@ -79,49 +79,61 @@ h1 { margin: 0; font-size: 18px; letter-spacing: 0.5px; }
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* Layouts & Panels */
+/* Updated Layouts: More spread out with bigger vertical spacing */
 .view-container {
-  padding: 20px;
-  max-width: 1200px;
+  padding: 60px 20px;
+  max-width: 1000px;
   margin: 0 auto;
   display: flex;
   justify-content: center;
+  align-items: flex-start;
+  min-height: 80vh;
 }
 
 .panel {
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 16px;
-  padding: 20px;
+  padding: 40px; /* Increased padding for internal breathing room */
   box-shadow: var(--panelShadow);
   backdrop-filter: blur(10px);
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 25px; /* Increased gap between form elements */
+  text-align: center;
 }
+
+/* Typography Enhancements for better readability */
+h2 { font-size: 2.2rem; margin: 0; }
+p.hint { font-size: 1.2rem; margin: 0; color: var(--muted); }
 
 .layout {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-  gap: 20px;
+  gap: 30px;
   width: 100%;
 }
 
-/* Form Elements */
+/* Spread-out Form Elements with larger fonts */
 input, select {
-  padding: 12px;
+  padding: 15px;
   background: var(--cell);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 8px;
-  font-size: 14px;
+  font-size: 1.1rem; /* Bigger font for input */
 }
 
 button {
-  padding: 12px 20px;
+  padding: 15px 25px;
   border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--card);
   color: var(--text);
   cursor: pointer;
   font-weight: 600;
+  font-size: 1.1rem; /* Bigger font for buttons */
   transition: all 0.2s;
 }
 
@@ -135,24 +147,38 @@ button:disabled {
   cursor: not-allowed;
 }
 
-.success { background: #2ecc71 !important; color: white !important; border: none; }
-.danger { background: #e74c3c !important; color: white !important; border: none; }
+/* Updated Success/Danger Buttons for visibility */
+.success { 
+  background: #2ecc71 !important; 
+  color: white !important; 
+  border: none !important; 
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.danger { 
+  background: #e74c3c !important; 
+  color: white !important; 
+  border: none !important; 
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
 
 /* Grid & Board */
 .board {
   display: grid;
-  grid-template-columns: repeat(10, 34px);
-  grid-template-rows: repeat(10, 34px);
-  gap: 4px;
-  padding: 10px;
+  grid-template-columns: repeat(10, 36px);
+  grid-template-rows: repeat(10, 36px);
+  gap: 6px;
+  padding: 15px;
   background: rgba(0,0,0,0.2);
   border: 1px solid var(--border);
   border-radius: 14px;
   width: max-content;
+  margin: 0 auto;
 }
 
 .cell {
-  width: 34px; height: 34px;
+  width: 36px; height: 36px;
   border-radius: 8px;
   background: var(--cell);
   border: 1px solid rgba(255,255,255,0.05);
@@ -168,8 +194,8 @@ button:disabled {
 .cell.miss { background: var(--miss) !important; }
 
 /* Hit/Miss Icons */
-.cell.hit::after { content: "×"; color: white; font-size: 20px; font-weight: bold; }
-.cell.miss::after { content: "•"; color: white; font-size: 24px; }
+.cell.hit::after { content: "×"; color: white; font-size: 22px; font-weight: bold; }
+.cell.miss::after { content: "•"; color: white; font-size: 26px; }
 
 /* Sunk Boat Visual */
 .cell.sunk {
@@ -177,11 +203,11 @@ button:disabled {
   border-radius: 0;
   opacity: 1;
 }
-.cell.sunk::after { content: "🚢"; font-size: 16px; }
+.cell.sunk::after { content: "🚢"; font-size: 18px; }
 
 /* Lobby List */
 .scroll-list {
-  max-height: 300px;
+  max-height: 400px;
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -192,7 +218,7 @@ button:disabled {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px;
+  padding: 15px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -210,10 +236,10 @@ button:disabled {
   position: fixed;
   bottom: 0;
   width: 100%;
-  padding: 10px 20px;
+  padding: 12px 20px;
   background: var(--card);
   border-top: 1px solid var(--border);
-  font-size: 12px;
+  font-size: 13px;
   display: flex;
   gap: 20px;
 }

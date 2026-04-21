@@ -243,3 +243,28 @@ button:disabled {
   display: flex;
   gap: 20px;
 }
+
+/* Ensure the battle layout stays within the screen width */
+#screen-game .layout {
+    display: flex;
+    flex-wrap: wrap; /* Wraps panels if the screen is too narrow */
+    justify-content: center;
+    gap: 20px;
+    padding-bottom: 80px; /* Space for status bar */
+}
+
+/* Fix Captain's Log to be visible without sideways scrolling */
+.logpanel {
+    width: 100%; /* Makes log take full width below boards */
+    max-width: 800px;
+}
+
+.log {
+    max-height: 200px;
+    overflow-y: auto;
+    width: 100%;
+}
+
+/* Ensure colors in the log are high-contrast for your demo */
+.hitTxt { color: var(--hit) !important; font-weight: bold; }
+.missTxt { color: var(--miss) !important; font-weight: bold; }

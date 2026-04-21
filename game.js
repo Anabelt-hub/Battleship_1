@@ -227,6 +227,17 @@ async function renderActiveBoards(gameData) {
     const movesData = await safeJson(movesRes);
     const moves = movesData.moves || [];
 
+    // Calculate Live Stats
+    const myMoves = moves.filter(m => Number(m.player_id) === Number(playerId));
+    const hits = myMoves.filter(m => m.result === 'hit').length;
+    const misses = myMoves.filter(m => m.result === 'miss').length;
+    const accuracy = myMoves.length > 0 ? ((hits / myMoves.length) * 100).toFixed(1) : 0;
+
+    // Update the UI
+    document.getElementById('liveHits').textContent = hits;
+    document.getElementById('liveMisses').textContent = misses;
+    document.getElementById('liveAccuracy').textContent = `${accuracy}%`;
+
     renderGrid("activePlayerBoard", moves, true);
     renderGrid("activeEnemyBoard", moves, false);
 }

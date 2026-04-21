@@ -19,9 +19,20 @@
     .grid-label { display: flex; justify-content: center; align-items: center; font-weight: bold; color: #4a9eff; }
     .scroll-list { max-height: 400px; overflow-y: auto; border: 1px solid #283458; border-radius: 8px; margin-top: 10px; }
     .game-item { display: flex; justify-content: space-between; padding: 10px; border-bottom: 1px solid #283458; align-items: center; }
+    
+    /* Responsive Game Grid - Prevents sideways scrolling */
+    .game-layout {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 20px;
+        justify-content: center;
+        width: 100%;
+    }
+    .side-panel { flex: 1; min-width: 350px; display: flex; flex-direction: column; gap: 20px; }
   </style>
 </head>
-<body class="dark-theme"> <header class="topbar">
+<body class="dark-theme"> 
+  <header class="topbar">
     <div class="brand">
       <div class="badge">★</div>
       <div>
@@ -39,10 +50,28 @@
     <section id="screen-server" class="screen panel">
       <h2>Step 1: Establish Tactical Uplink</h2>
       <p class="hint">Select a command server to begin mission operations.</p>
-      <div class="session-controls">
-        <select id="serverSelect" style="flex: 1; padding: 10px; background: #0d1222; color: #fff; border: 1px solid #4a9eff; border-radius: 6px;">
-          <option value="https://battleship-1-qpm6.onrender.com">Our Team Server (Default)</option>
-          </select>
+      <div class="session-controls" style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <select id="serverSelect" style="flex: 1; padding: 15px; background: #0d1222; color: #fff; border: 1px solid #4a9eff; border-radius: 6px; font-size: 1.1rem;">
+            <option value="https://battleship-1-qpm6.onrender.com">Our Team Server (Default)</option>
+            <option value="https://cpsc.loosesocket.com/">https://cpsc.loosesocket.com/</option>
+            <option value="https://battleship-advanced.onrender.com/">https://battleship-advanced.onrender.com/</option>
+            <option value="https://cpsc3750-battleshipproject.onrender.com/">https://cpsc3750-battleshipproject.onrender.com/</option>
+            <option value="https://cpsc-3750-battleship-final-project-phase1.onrender.com/">https://cpsc-3750-battleship-final-project-phase1.onrender.com/</option>
+            <option value="https://battleship.koon.us/">https://battleship.koon.us/</option>
+            <option value="https://finalproject-virusoutbreak-3bwa.onrender.com/">https://finalproject-virusoutbreak-3bwa.onrender.com/</option>
+            <option value="https://finalproject3750.onrender.com/">https://finalproject3750.onrender.com/</option>
+            <option value="https://webdevgroupproj.onrender.com/">https://webdevgroupproj.onrender.com/</option>
+            <option value="https://cpsc3720finalproject.onrender.com/">https://cpsc3720finalproject.onrender.com/</option>
+            <option value="https://three750final.onrender.com/">https://three750final.onrender.com/</option>
+            <option value="https://persistent-waters.onrender.com/">https://persistent-waters.onrender.com/</option>
+            <option value="https://p01--backend--zm8jxh5c8bph.code.run/">https://p01--backend--zm8jxh5c8bph.code.run/</option>
+            <option value="https://lightslategray-dogfish-869967.hostingersite.com/">https://lightslategray-dogfish-869967.hostingersite.com/</option>
+            <option value="https://capstone3750-production.up.railway.app/">https://capstone3750-production.up.railway.app/</option>
+            <option value="https://battleship-cpsc3750.onrender.com/">https://battleship-cpsc3750.onrender.com/</option>
+            <option value="https://final-project-7xwd.onrender.com/">https://final-project-7xwd.onrender.com/</option>
+            <option value="https://battleship-server-18q1.onrender.com/">https://battleship-server-18q1.onrender.com/</option>
+            <option value="https://vibe-hunter.com/">https://vibe-hunter.com/</option>
+        </select>
         <button id="btnConnectServer" class="success">Connect to Server</button>
       </div>
     </section>
@@ -57,7 +86,7 @@
     </section>
 
     <section id="screen-lobby" class="screen hidden">
-      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+      <div class="layout" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">
         <div class="panel">
           <h3>Create New Mission</h3>
           <div style="display: flex; flex-direction: column; gap: 10px;">
@@ -79,7 +108,7 @@
     <section id="screen-placement" class="screen panel hidden">
       <h2>Step 3: Fleet Deployment</h2>
       <p id="placementInstructions" style="color: #ffcc66; font-weight: bold; font-size: 1.1rem;"></p>
-      <div style="display: flex; gap: 20px; align-items: start;">
+      <div style="display: flex; gap: 20px; flex-wrap: wrap; justify-content: center;">
         <div id="placementBoard" class="board"></div>
         <div class="controls" style="display: flex; flex-direction: column; gap: 10px;">
           <button id="btnConfirmPlacement" class="success" disabled>Confirm Positions</button>
@@ -90,11 +119,10 @@
     </section>
 
     <section id="screen-game" class="screen hidden">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+      <div style="text-align: center; margin-bottom: 15px;">
         <h2 id="turnIndicator">TACTICAL ENGAGEMENT</h2>
-        <div id="gameStats" style="font-family: monospace; color: #4a9eff;"></div>
       </div>
-      <div class="layout" style="grid-template-columns: 1fr 1fr 350px;">
+      <div class="game-layout">
         <div class="panel">
           <h3>Federation Grid</h3>
           <div id="activePlayerBoard" class="board"></div>
@@ -104,6 +132,14 @@
           <div id="activeEnemyBoard" class="board"></div>
         </div>
         <div class="side-panel">
+          <div class="panel">
+            <h3>Live Mission Data</h3>
+            <div id="live-game-stats" style="display: flex; justify-content: space-around; font-family: monospace;">
+                <div>HITS: <span id="liveHits" style="color: var(--hit); font-weight: bold;">0</span></div>
+                <div>MISSES: <span id="liveMisses" style="color: var(--miss); font-weight: bold;">0</span></div>
+                <div>ACCURACY: <span id="liveAccuracy" style="color: var(--ship); font-weight: bold;">0%</span></div>
+            </div>
+          </div>
           <div id="stats-container"></div>
           <div class="panel logpanel">
             <h3>Captain's Log</h3>
@@ -115,8 +151,8 @@
 
     <section id="screen-summary" class="screen panel hidden">
       <h1 id="missionResult" style="text-align: center; font-size: 3rem; margin: 0;"></h1>
-      <div id="summaryContent" style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px;">
-        </div>
+      <div id="summaryContent" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin-top: 20px;">
+      </div>
       <div style="display: flex; justify-content: center; gap: 20px; margin-top: 30px;">
         <button id="btnReturnLobby" class="success">New Mission</button>
         <button id="btnDisconnect" class="danger">Disconnect Server</button>
@@ -125,7 +161,7 @@
 
   </main>
 
-  <footer class="statusbar">
+  <footer class="statusbar" style="position: fixed; bottom: 0; width: 100%; background: var(--card); border-top: 1px solid var(--border); padding: 10px;">
     <div id="status" class="status">Uplink required.</div>
   </footer>
 

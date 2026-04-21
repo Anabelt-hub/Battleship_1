@@ -185,6 +185,10 @@ function handlePlacementClick(row, col) {
 
 // --- SCREEN 5: BATTLE ---
 async function firePhasers(row, col) {
+    // 1. Get the cell element
+    const cell = document.getElementById(`enemy-cell-${row}-${col}`);
+    if (!cell || cell.classList.contains('hit') || cell.classList.contains('miss')) return;
+
     try {
         const res = await fetch(`${currentBaseUrl}/api/games/${gameId}/fire`, {
             method: "POST",
@@ -192,16 +196,31 @@ async function firePhasers(row, col) {
             body: JSON.stringify({ player_id: playerId, row, col })
         });
         const data = await safeJson(res);
-        if (!res.ok) { addToLog(data.message, "miss"); return; }
         
-        // Immediate visual feedback
-        const cell = document.getElementById(`enemy-cell-${row}-${col}`);
-        if (cell) {
-            cell.style.backgroundColor = data.result === 'hit' ? 'var(--hit)' : 'var(--miss)';
+        if (!res.ok) { 
+            addToLog(data.message, "miss"); 
+            return; 
         }
+
+        // 2. IMMEDIATE VISUAL FEEDBACK
+        // We apply the color and a 'permanent' marker so the next refresh 
+        // doesn't wipe it out before the server moves list updates.
+        const resultClass = data.result; // 'hit' or 'miss'
+        cell.classList.add(resultClass);
+        cell.style.backgroundColor = (resultClass === 'hit') ? 'var(--hit)' : 'var(--miss)';
+        cell.disabled = true; // Prevent double-firing
+
         addToLog(`[${data.result.toUpperCase()}] Sector ${String.fromCharCode(65+row)}-${col+1}`, data.result);
-        await refreshGameState();
-    } catch (err) { console.error(err); }
+        
+        // 3. WAIT slightly before refreshing to give the server 
+        // time to process the move into the /moves list
+        setTimeout(async () => {
+            await refreshGameState();
+        }, 300); 
+
+    } catch (err) { 
+        console.error("Fire command failed:", err); 
+    }
 }
 
 async function renderActiveBoards(gameData) {

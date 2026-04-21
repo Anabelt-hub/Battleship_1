@@ -1,13 +1,13 @@
 // --- CONFIGURATION & STATE ---
 const SIZE = 10;
-const SHIP_SEQUENCE = [5, 4, 3]; // Specific lengths required for demo
+const SHIP_SEQUENCE = [5, 4, 3]; 
 let currentBaseUrl = "https://battleship-1-qpm6.onrender.com"; 
 
 let gameId = null;
 let playerId = null;
 let gameStatus = "waiting_setup";
 let isPlacementMode = false;
-let selectedShips = []; // Stores 12 total coordinates (5+4+3)
+let selectedShips = []; 
 let currentPlacementIndex = 0; 
 let pollHandle = null;
 
@@ -15,28 +15,41 @@ let pollHandle = null;
 const statusEl = document.getElementById("status");
 const logEl = document.getElementById("log");
 
-// --- VIEW MANAGEMENT (The 6 Screens) ---
+// --- VIEW MANAGEMENT & PERSISTENCE ---
 function navigateTo(screenId) {
     document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
     document.getElementById(screenId).classList.remove('hidden');
+    
+    // Save state for refresh persistence
+    sessionStorage.setItem('currentView', screenId);
+    sessionStorage.setItem('currentServer', currentBaseUrl);
+    updateNavButtons(screenId);
+}
+
+// --- NAVIGATION BUTTON LOGIC ---
+function updateNavButtons(view) {
+    const dsc = document.getElementById('nav-disconnect');
+    const lgo = document.getElementById('nav-logout');
+    const lby = document.getElementById('nav-lobby');
+
+    if (dsc) dsc.classList.toggle('hidden', view === 'screen-server');
+    if (lgo) lgo.classList.toggle('hidden', view === 'screen-server' || view === 'screen-login');
+    if (lby) lby.classList.toggle('hidden', view === 'screen-server' || view === 'screen-login' || view === 'screen-lobby');
 }
 
 // --- SCREEN 1: SERVER SELECTION ---
-// Ensure this ID matches exactly in index.html: <button id="themeToggle">
 document.getElementById('themeToggle').onclick = () => {
-    document.body.classList.toggle('light-theme'); // Must match the CSS class
-    console.log("Theme changed to: " + document.body.className);
+    document.body.classList.toggle('light-theme');
 };
 
-// Ensure this ID matches: <button id="btnConnectServer">
 document.getElementById('btnConnectServer').onclick = async () => {
     currentBaseUrl = document.getElementById('serverSelect').value;
     document.getElementById('activeServerUrl').textContent = `Connected: ${currentBaseUrl}`;
     
     try {
-        const res = await fetch(`${currentBaseUrl}/api/health`); //
+        const res = await fetch(`${currentBaseUrl}/api/health`);
         if (res.ok) {
-            navigateTo('screen-login'); // Moves to the next screen
+            navigateTo('screen-login');
         } else {
             alert("Uplink failed: Server rejected request.");
         }
@@ -56,30 +69,13 @@ document.getElementById('btnLogin').onclick = async () => {
     }
 };
 
-// --- SCREEN 3: LOBBY (Create/Join) ---
-document.getElementById('btnCreateRoom').onclick = async () => {
-    try {
-        const grid = document.getElementById('gridSizeInput').value;
-        const maxP = document.getElementById('maxPlayersInput').value;
-
-        const res = await fetch(`${currentBaseUrl}/api/games`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                grid_size: parseInt(grid),
-                max_players: parseInt(maxP),
-                creator_id: playerId
-            })
-        });
-        const data = await safeJson(res);
-        if (!res.ok) throw new Error(data.message);
-
-        gameId = data.game_id;
-        await joinGameById(gameId);
-    } catch (err) {
-        alert(`Creation failed: ${err.message}`);
+// --- SCREEN 3: LOBBY (Auto-Refreshing) ---
+setInterval(() => {
+    const lobby = document.getElementById('screen-lobby');
+    if (lobby && !lobby.classList.contains('hidden')) {
+        refreshLobby();
     }
-};
+}, 3000);
 
 async function refreshLobby() {
     const listEl = document.getElementById('gameList');
@@ -100,6 +96,7 @@ async function refreshLobby() {
     }
 }
 
+// --- SCREEN 4: SHIP PLACEMENT ---
 async function joinGameById(id) {
     try {
         const res = await fetch(`${currentBaseUrl}/api/games/${id}/join`, {
@@ -107,10 +104,7 @@ async function joinGameById(id) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ player_id: playerId })
         });
-        if (!res.ok) {
-            const data = await safeJson(res);
-            throw new Error(data.message);
-        }
+        if (!res.ok) throw new Error((await safeJson(res)).message);
         gameId = id;
         localStorage.setItem("currentGameId", String(gameId));
         startPlacementMode();
@@ -119,7 +113,6 @@ async function joinGameById(id) {
     }
 }
 
-// --- SCREEN 4: SHIP PLACEMENT ---
 function startPlacementMode() {
     isPlacementMode = true;
     selectedShips = [];
@@ -132,14 +125,12 @@ function startPlacementMode() {
 function renderPlacementBoard() {
     const board = document.getElementById("placementBoard");
     board.innerHTML = "";
-    
-    // Add Labels (A-J, 1-10)
-    board.style.gridTemplateColumns = `repeat(${SIZE + 1}, 36px)`;
+    board.style.gridTemplateColumns = `repeat(${SIZE + 1}, 32px)`;
     
     for (let r = -1; r < SIZE; r++) {
         for (let c = -1; c < SIZE; c++) {
             const cell = document.createElement("div");
-            if (r === -1 && c === -1) { /* Corner empty */ }
+            if (r === -1 && c === -1) {} 
             else if (r === -1) { cell.textContent = c + 1; cell.className = "grid-label"; }
             else if (c === -1) { cell.textContent = String.fromCharCode(65 + r); cell.className = "grid-label"; }
             else {
@@ -155,13 +146,10 @@ function renderPlacementBoard() {
 }
 
 function handlePlacementClick(row, col) {
-    if (!isPlacementMode) return;
-    if (selectedShips.some(s => s.row === row && s.col === col)) return;
-
+    if (!isPlacementMode || selectedShips.some(s => s.row === row && s.col === col)) return;
     selectedShips.push({ row, col });
 
     const currentGoal = SHIP_SEQUENCE.slice(0, currentPlacementIndex + 1).reduce((a, b) => a + b, 0);
-
     if (selectedShips.length === currentGoal) {
         currentPlacementIndex++;
         if (currentPlacementIndex < SHIP_SEQUENCE.length) {
@@ -174,10 +162,131 @@ function handlePlacementClick(row, col) {
     renderPlacementBoard();
 }
 
-function updatePlacementInstructions(msg) {
-    document.getElementById('placementInstructions').textContent = msg;
+// --- SCREEN 5: THE BATTLE (Side-by-Side Grid Logic) ---
+async function firePhasers(row, col) {
+    try {
+        const res = await fetch(`${currentBaseUrl}/api/games/${gameId}/fire`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ player_id: playerId, row, col })
+        });
+        const data = await safeJson(res);
+        if (!res.ok) { addToLog(data.message, "miss"); return; }
+        
+        // Immediate visual feedback
+        const cell = document.getElementById(`enemy-cell-${row}-${col}`);
+        if (cell) {
+            cell.style.backgroundColor = data.result === 'hit' ? 'var(--hit)' : 'var(--miss)';
+        }
+
+        addToLog(`[${data.result.toUpperCase()}] Sector ${String.fromCharCode(65+row)}-${col+1}`, data.result);
+        await refreshGameState();
+    } catch (err) { console.error(err); }
 }
 
+async function renderActiveBoards(gameData) {
+    const movesRes = await fetch(`${currentBaseUrl}/api/games/${gameId}/moves`);
+    const movesData = await safeJson(movesRes);
+    const moves = movesData.moves || [];
+
+    const myMoves = moves.filter(m => Number(m.player_id) === Number(playerId));
+    const hits = myMoves.filter(m => m.result === 'hit').length;
+    const misses = myMoves.filter(m => m.result === 'miss').length;
+    const accuracy = myMoves.length > 0 ? ((hits / myMoves.length) * 100).toFixed(1) : 0;
+
+    document.getElementById('liveHits').textContent = hits;
+    document.getElementById('liveMisses').textContent = misses;
+    document.getElementById('liveAccuracy').textContent = `${accuracy}%`;
+
+    renderGrid("activePlayerBoard", moves, true, "player-cell");
+    renderGrid("activeEnemyBoard", moves, false, "enemy-cell");
+}
+
+function renderGrid(containerId, moves, isPlayer, idPrefix) {
+    const board = document.getElementById(containerId);
+    board.innerHTML = "";
+    board.style.gridTemplateColumns = `repeat(${SIZE + 1}, 28px)`;
+
+    const shotMap = new Map();
+    moves.forEach(m => {
+        const key = `${m.row},${m.col}`;
+        if (isPlayer && Number(m.player_id) !== Number(playerId)) shotMap.set(key, m.result);
+        if (!isPlayer && Number(m.player_id) === Number(playerId)) shotMap.set(key, m.result);
+    });
+
+    for (let r = -1; r < SIZE; r++) {
+        for (let c = -1; c < SIZE; c++) {
+            const cell = document.createElement("div");
+            if (r === -1 || c === -1) {
+                cell.className = "grid-label";
+                if (r === -1 && c !== -1) cell.textContent = c + 1;
+                if (c === -1 && r !== -1) cell.textContent = String.fromCharCode(65 + r);
+            } else {
+                const item = document.createElement("button");
+                item.className = "cell";
+                item.id = `${idPrefix}-${r}-${c}`;
+                const key = `${r},${c}`;
+
+                if (isPlayer && selectedShips.some(s => s.row === r && s.col === c)) item.classList.add("ship");
+                if (shotMap.has(key)) {
+                    item.classList.add(shotMap.get(key));
+                    if (shotMap.get(key) === "hit") item.classList.add("sunk");
+                }
+
+                if (!isPlayer) item.onclick = () => firePhasers(r, c);
+                cell.appendChild(item);
+            }
+            board.appendChild(cell);
+        }
+    }
+}
+
+// --- GLOBAL HELPERS & REFRESH LOAD ---
+window.addEventListener("load", () => {
+    const savedView = sessionStorage.getItem('currentView');
+    const savedServer = sessionStorage.getItem('currentServer');
+    const savedName = localStorage.getItem("persistentPlayerName");
+
+    if (savedName) document.getElementById("playerName").value = savedName;
+    if (savedServer) {
+        currentBaseUrl = savedServer;
+        document.getElementById('activeServerUrl').textContent = `Connected: ${currentBaseUrl}`;
+    }
+    if (savedView) navigateTo(savedView);
+    else navigateTo('screen-server');
+});
+
+// Navigation buttons handlers
+document.getElementById('nav-disconnect').onclick = () => { sessionStorage.clear(); location.reload(); };
+document.getElementById('nav-logout').onclick = () => { navigateTo('screen-login'); };
+document.getElementById('nav-lobby').onclick = () => { navigateTo('screen-lobby'); refreshLobby(); };
+
+// Standard helper functions
+async function ensurePlayer() {
+    const name = document.getElementById("playerName").value || "Captain_Gabbie";
+    const res = await fetch(`${currentBaseUrl}/api/players`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: name })
+    });
+    const data = await safeJson(res);
+    playerId = (res.status === 409) ? Number(localStorage.getItem("currentPlayerId")) : data.player_id;
+    localStorage.setItem("currentPlayerId", playerId);
+    localStorage.setItem("persistentPlayerName", name);
+}
+
+function updatePlacementInstructions(msg) { document.getElementById('placementInstructions').textContent = msg; }
+function addToLog(msg, type) {
+    const entry = document.createElement("div");
+    entry.className = type === "hit" ? "hitTxt" : "missTxt";
+    entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    logEl.prepend(entry);
+}
+function startPolling() { stopPolling(); pollHandle = setInterval(refreshGameState, 1500); }
+function stopPolling() { if (pollHandle) clearInterval(pollHandle); pollHandle = null; }
+async function safeJson(r) { const t = await r.text(); try { return JSON.parse(t); } catch { return {message: t}; } }
+
+// Bridge existing buttons to new SPA logic
 document.getElementById('btnConfirmPlacement').onclick = async () => {
     try {
         const res = await fetch(`${currentBaseUrl}/api/games/${gameId}/place`, {
@@ -186,23 +295,18 @@ document.getElementById('btnConfirmPlacement').onclick = async () => {
             body: JSON.stringify({ player_id: playerId, ships: selectedShips })
         });
         if (!res.ok) throw new Error("Deployment rejected.");
-        
         navigateTo('screen-game');
         startPolling();
-    } catch (err) {
-        alert(err.message);
-    }
+    } catch (err) { alert(err.message); }
 };
-
 document.getElementById('btnResetPlacement').onclick = () => startPlacementMode();
+document.getElementById('btnReturnLobby').onclick = () => { navigateTo('screen-lobby'); refreshLobby(); };
+document.getElementById('btnDisconnect').onclick = () => { sessionStorage.clear(); location.reload(); };
 
-// --- SCREEN 5: THE BATTLE ---
 async function refreshGameState() {
     if (!gameId || !playerId) return;
-
     const gameRes = await fetch(`${currentBaseUrl}/api/games/${gameId}`);
     const gameData = await safeJson(gameRes);
-
     if (gameData.status === "playing") {
         updateTurnIndicator(gameData.current_turn_player_id);
     } else if (gameData.status === "finished") {
@@ -222,93 +326,6 @@ function updateTurnIndicator(turnId) {
     }
 }
 
-async function renderActiveBoards(gameData) {
-    const movesRes = await fetch(`${currentBaseUrl}/api/games/${gameId}/moves`);
-    const movesData = await safeJson(movesRes);
-    const moves = movesData.moves || [];
-
-    // Calculate Live Stats
-    const myMoves = moves.filter(m => Number(m.player_id) === Number(playerId));
-    const hits = myMoves.filter(m => m.result === 'hit').length;
-    const misses = myMoves.filter(m => m.result === 'miss').length;
-    const accuracy = myMoves.length > 0 ? ((hits / myMoves.length) * 100).toFixed(1) : 0;
-
-    // Update the UI
-    document.getElementById('liveHits').textContent = hits;
-    document.getElementById('liveMisses').textContent = misses;
-    document.getElementById('liveAccuracy').textContent = `${accuracy}%`;
-
-    renderGrid("activePlayerBoard", moves, true);
-    renderGrid("activeEnemyBoard", moves, false);
-}
-
-function renderGrid(containerId, moves, isPlayer) {
-    const board = document.getElementById(containerId);
-    board.innerHTML = "";
-    board.style.gridTemplateColumns = `repeat(${SIZE + 1}, 36px)`;
-
-    const shotMap = new Map();
-    moves.forEach(m => {
-        const key = `${m.row},${m.col}`;
-        // Map shots based on who fired them
-        if (isPlayer && Number(m.player_id) !== Number(playerId)) shotMap.set(key, m.result);
-        if (!isPlayer && Number(m.player_id) === Number(playerId)) shotMap.set(key, m.result);
-    });
-
-    for (let r = -1; r < SIZE; r++) {
-        for (let c = -1; c < SIZE; c++) {
-            const cell = document.createElement("div");
-            if (r === -1 || c === -1) {
-                cell.className = "grid-label";
-                if (r === -1 && c !== -1) cell.textContent = c + 1;
-                if (c === -1 && r !== -1) cell.textContent = String.fromCharCode(65 + r);
-            } else {
-                const item = document.createElement("button");
-                item.className = "cell";
-                const key = `${r},${c}`;
-
-                // 1. Show player's own ships
-                if (isPlayer && selectedShips.some(s => s.row === r && s.col === c)) {
-                    item.classList.add("ship");
-                }
-
-                // 2. Apply Red/Blue logic based on API results
-                if (shotMap.has(key)) {
-                    const result = shotMap.get(key); // "hit" or "miss"
-                    item.classList.add(result);
-                    
-                    // 3. Logic for Sunk Ship Emoji
-                    // If it was a hit, and the server says a ship was destroyed, 
-                    // we label it as 'sunk' to show the 🚢 emoji.
-                    if (result === "hit") {
-                        item.classList.add("sunk");
-                    }
-                }
-
-                if (!isPlayer) item.onclick = () => firePhasers(r, c);
-                cell.appendChild(item);
-            }
-            board.appendChild(cell);
-        }
-    }
-}
-
-async function firePhasers(row, col) {
-    try {
-        const res = await fetch(`${currentBaseUrl}/api/games/${gameId}/fire`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ player_id: playerId, row, col })
-        });
-        const data = await safeJson(res);
-        if (!res.ok) { addToLog(data.message, "miss"); return; }
-        
-        addToLog(`[${data.result.toUpperCase()}] Sector ${String.fromCharCode(65+row)}-${col+1}`, data.result);
-        await refreshGameState();
-    } catch (err) { console.error(err); }
-}
-
-// --- SCREEN 6: SUMMARY ---
 function showFinalSummary(gameData) {
     stopPolling();
     navigateTo('screen-summary');
@@ -316,24 +333,6 @@ function showFinalSummary(gameData) {
     document.getElementById('missionResult').textContent = isWin ? "MISSION ACCOMPLISHED" : "MISSION FAILURE";
     document.getElementById('missionResult').style.color = isWin ? "#2ecc71" : "#ff5c5c";
     updateStatsBox(playerId);
-}
-
-// --- HELPERS ---
-async function ensurePlayer() {
-    const name = document.getElementById("playerName").value || "Captain_Gabbie";
-    const res = await fetch(`${currentBaseUrl}/api/players`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: name })
-    });
-    const data = await safeJson(res);
-    if (res.status === 409) {
-         playerId = Number(localStorage.getItem("currentPlayerId"));
-    } else {
-         playerId = data.player_id;
-         localStorage.setItem("currentPlayerId", playerId);
-    }
-    localStorage.setItem("persistentPlayerName", name);
 }
 
 async function updateStatsBox(id) {
@@ -348,23 +347,3 @@ async function updateStatsBox(id) {
             <p>ACCURACY: ${(stats.accuracy * 100).toFixed(1)}%</p>
         </div>`;
 }
-
-function addToLog(msg, type) {
-    const entry = document.createElement("div");
-    // Ensure 'hit' result gets 'hitTxt' class and 'miss' gets 'missTxt'
-    entry.className = type === "hit" ? "hitTxt" : "missTxt";
-    entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-    logEl.prepend(entry);
-}
-
-function startPolling() { stopPolling(); pollHandle = setInterval(refreshGameState, 1500); }
-function stopPolling() { if (pollHandle) clearInterval(pollHandle); pollHandle = null; }
-async function safeJson(r) { const t = await r.text(); try { return JSON.parse(t); } catch { return {message: t}; } }
-
-document.getElementById('btnReturnLobby').onclick = () => { navigateTo('screen-lobby'); refreshLobby(); };
-document.getElementById('btnDisconnect').onclick = () => { location.reload(); };
-
-window.addEventListener("load", () => {
-    const savedName = localStorage.getItem("persistentPlayerName");
-    if (savedName) document.getElementById("playerName").value = savedName;
-});

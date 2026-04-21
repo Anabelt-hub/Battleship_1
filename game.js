@@ -22,25 +22,27 @@ function navigateTo(screenId) {
 }
 
 // --- SCREEN 1: SERVER SELECTION ---
+// Ensure this ID matches exactly in index.html: <button id="themeToggle">
+document.getElementById('themeToggle').onclick = () => {
+    document.body.classList.toggle('light-theme'); // Must match the CSS class
+    console.log("Theme changed to: " + document.body.className);
+};
+
+// Ensure this ID matches: <button id="btnConnectServer">
 document.getElementById('btnConnectServer').onclick = async () => {
     currentBaseUrl = document.getElementById('serverSelect').value;
     document.getElementById('activeServerUrl').textContent = `Connected: ${currentBaseUrl}`;
     
     try {
-        const res = await fetch(`${currentBaseUrl}/api/health`);
+        const res = await fetch(`${currentBaseUrl}/api/health`); //
         if (res.ok) {
-            navigateTo('screen-login');
+            navigateTo('screen-login'); // Moves to the next screen
         } else {
-            alert("Tactical uplink failed: Server offline.");
+            alert("Uplink failed: Server rejected request.");
         }
     } catch (err) {
-        alert("Connection Error: Unable to reach command server.");
+        alert("Network Error: Could not reach " + currentBaseUrl);
     }
-};
-
-// --- UNIVERSAL THEME TOGGLE ---
-document.getElementById('themeToggle').onclick = () => {
-    document.body.classList.toggle('light-theme');
 };
 
 // --- SCREEN 2: LOGIN ---

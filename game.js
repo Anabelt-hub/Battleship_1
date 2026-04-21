@@ -10,6 +10,8 @@ let isPlacementMode = false;
 let selectedShips = []; 
 let currentPlacementIndex = 0; 
 let pollHandle = null;
+let lastMoveCount = 0; 
+let playerMap = {}; 
 
 // --- DOM ELEMENTS ---
 const statusEl = document.getElementById("status");
@@ -21,7 +23,6 @@ function navigateTo(screenId) {
     const target = document.getElementById(screenId);
     if (target) target.classList.remove('hidden');
     
-    // Save state for refresh persistence
     sessionStorage.setItem('currentView', screenId);
     sessionStorage.setItem('currentServer', currentBaseUrl);
     updateNavButtons(screenId);
@@ -177,15 +178,15 @@ function handlePlacementClick(row, col) {
             updatePlacementInstructions(`Place your next ship (${SHIP_SEQUENCE[currentPlacementIndex]} squares)`);
         } else {
             updatePlacementInstructions("Fleet stationed. Ready for confirmation.");
-            document.getElementById('btnConfirmPlacement').disabled = false;
+            const confirmBtn = document.getElementById('btnConfirmPlacement');
+            if (confirmBtn) confirmBtn.disabled = false;
         }
     }
     renderPlacementBoard();
 }
 
-// --- SCREEN 5: BATTLE ---
+// --- SCREEN 5: THE BATTLE ---
 async function firePhasers(row, col) {
-    // 1. Get the cell element
     const cell = document.getElementById(`enemy-cell-${row}-${col}`);
     if (!cell || cell.classList.contains('hit') || cell.classList.contains('miss')) return;
 
@@ -196,60 +197,44 @@ async function firePhasers(row, col) {
             body: JSON.stringify({ player_id: playerId, row, col })
         });
         const data = await safeJson(res);
-        
-        if (!res.ok) { 
-            addToLog(data.message, "miss"); 
-            return; 
-        }
+        if (!res.ok) { addToLog(data.message, "miss"); return; }
 
-        // 2. IMMEDIATE VISUAL FEEDBACK
-        // We apply the color and a 'permanent' marker so the next refresh 
-        // doesn't wipe it out before the server moves list updates.
-        const resultClass = data.result; // 'hit' or 'miss'
+        const resultClass = data.result; 
         cell.classList.add(resultClass);
         cell.style.backgroundColor = (resultClass === 'hit') ? 'var(--hit)' : 'var(--miss)';
-        cell.disabled = true; // Prevent double-firing
 
-        addToLog(`[${data.result.toUpperCase()}] Sector ${String.fromCharCode(65+row)}-${col+1}`, data.result);
+        addToLog(`Fired at ${String.fromCharCode(65+row)}-${col+1} (${data.result.toUpperCase()})`, data.result, playerId);
         
-        // 3. WAIT slightly before refreshing to give the server 
-        // time to process the move into the /moves list
-        setTimeout(async () => {
-            await refreshGameState();
-        }, 300); 
-
-    } catch (err) { 
-        console.error("Fire command failed:", err); 
-    }
+        setTimeout(() => { refreshGameState(); }, 300); 
+    } catch (err) { console.error(err); }
 }
 
 async function renderActiveBoards(gameData) {
-    // 1. Fetch moves with a cache-buster to ensure we get the latest data
     const movesRes = await fetch(`${currentBaseUrl}/api/games/${gameId}/moves?t=${Date.now()}`);
     const movesData = await safeJson(movesRes);
     const moves = movesData.moves || [];
 
-    // 2. LIVE STATS CALCULATION
-    // We must force both IDs to Numbers to ensure the .filter works!
+    if (moves.length > lastMoveCount) {
+        moves.slice(lastMoveCount).forEach(m => {
+            if (Number(m.player_id) !== Number(playerId)) {
+                addToLog(`Fired at ${String.fromCharCode(65 + m.row)}-${m.col + 1} (${m.result.toUpperCase()})`, m.result, m.player_id);
+            }
+        });
+        lastMoveCount = moves.length;
+    }
+
     const myMoves = moves.filter(m => Number(m.player_id) === Number(playerId));
-    
     const hits = myMoves.filter(m => m.result === 'hit').length;
     const misses = myMoves.filter(m => m.result === 'miss').length;
-    
-    // Calculate accuracy percentage
-    const totalShots = myMoves.length;
-    const accuracy = totalShots > 0 ? ((hits / totalShots) * 100).toFixed(1) : "0.0";
+    const accuracy = myMoves.length > 0 ? ((hits / myMoves.length) * 100).toFixed(1) : "0.0";
 
-    // 3. UPDATE THE UI ELEMENTS
     const hitsEl = document.getElementById('liveHits');
     const missesEl = document.getElementById('liveMisses');
     const accuracyEl = document.getElementById('liveAccuracy');
-
     if (hitsEl) hitsEl.textContent = hits;
     if (missesEl) missesEl.textContent = misses;
     if (accuracyEl) accuracyEl.textContent = `${accuracy}%`;
 
-    // 4. Update the actual boards
     renderGrid("activePlayerBoard", moves, true, "player-cell");
     renderGrid("activeEnemyBoard", moves, false, "enemy-cell");
 }
@@ -258,6 +243,7 @@ function renderGrid(containerId, moves, isPlayer, idPrefix) {
     const board = document.getElementById(containerId);
     if (!board) return;
     board.innerHTML = "";
+    board.style.gridTemplateColumns = `repeat(${SIZE + 1}, 28px)`;
 
     const shotMap = new Map();
     moves.forEach(m => {
@@ -278,7 +264,6 @@ function renderGrid(containerId, moves, isPlayer, idPrefix) {
                 item.className = "cell";
                 item.id = `${idPrefix}-${r}-${c}`;
                 const key = `${r},${c}`;
-
                 if (isPlayer && selectedShips.some(s => s.row === r && s.col === c)) item.classList.add("ship");
                 if (shotMap.has(key)) {
                     const status = shotMap.get(key);
@@ -313,15 +298,17 @@ window.addEventListener("load", () => {
     else navigateTo('screen-server');
 
     const savedName = localStorage.getItem("persistentPlayerName");
-    if (savedName) document.getElementById("playerName").value = savedName;
+    if (savedName) {
+        const pInput = document.getElementById("playerName");
+        if (pInput) pInput.value = savedName;
+    }
 });
 
-// Top bar handlers
+// Navigation handlers
 document.getElementById('nav-disconnect').onclick = () => { sessionStorage.clear(); location.reload(); };
 document.getElementById('nav-logout').onclick = () => { navigateTo('screen-login'); };
 document.getElementById('nav-lobby').onclick = () => { navigateTo('screen-lobby'); refreshLobby(); };
 
-// Existing helper logic maintained
 async function ensurePlayer() {
     const name = document.getElementById("playerName").value || "Captain_Gabbie";
     const res = await fetch(`${currentBaseUrl}/api/players`, {
@@ -353,6 +340,11 @@ async function refreshGameState() {
     if (!gameId || !playerId) return;
     const gameRes = await fetch(`${currentBaseUrl}/api/games/${gameId}`);
     const gameData = await safeJson(gameRes);
+    if (gameData.players) {
+        gameData.players.forEach(p => {
+            playerMap[p.player_id] = p.username || (Number(p.player_id) === Number(playerId) ? "You" : "Opponent");
+        });
+    }
     if (gameData.status === "finished") showFinalSummary(gameData);
     else updateTurnIndicator(gameData.current_turn_player_id);
     renderActiveBoards(gameData);
@@ -362,12 +354,13 @@ function showFinalSummary(gameData) {
     stopPolling();
     navigateTo('screen-summary');
     const isWin = Number(gameData.winner_id) === Number(playerId);
-    document.getElementById('missionResult').textContent = isWin ? "VICTORY" : "DEFEAT";
-    document.getElementById('missionResult').style.color = isWin ? "#2ecc71" : "#ff5c5c";
-    updateStatsBox(playerId);
+    const resEl = document.getElementById('missionResult');
+    if (resEl) {
+        resEl.textContent = isWin ? "MISSION ACCOMPLISHED" : "MISSION FAILURE";
+        resEl.style.color = isWin ? "#2ecc71" : "#ff5c5c";
+    }
 }
 
-// Utility Helpers
 function updateTurnIndicator(turnId) {
     const ind = document.getElementById('turnIndicator');
     if (!ind) return;
@@ -375,21 +368,21 @@ function updateTurnIndicator(turnId) {
     ind.textContent = myTurn ? "YOUR TURN: FIRE WHEN READY" : "OPPONENT TURN: BRACING FOR IMPACT";
     ind.style.color = myTurn ? "#2ecc71" : "#ff5c5c";
 }
-async function updateStatsBox(id) {
-    const res = await fetch(`${currentBaseUrl}/api/players/${id}/stats`);
-    const stats = await res.json();
-    document.getElementById("stats-container").innerHTML = `<div class="panel"><h3>ARCHIVE</h3><p>WON: ${stats.wins}</p><p>LOST: ${stats.losses}</p></div>`;
-}
+
 function updatePlacementInstructions(msg) { document.getElementById('placementInstructions').textContent = msg; }
-function addToLog(msg, type) {
+
+function addToLog(msg, type, actorId = null) {
     const entry = document.createElement("div");
+    const name = actorId ? (playerMap[actorId] || "Unknown") : "System";
     entry.className = type === "hit" ? "hitTxt" : "missTxt";
-    entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    entry.innerHTML = `<span style="color:var(--muted)">[${new Date().toLocaleTimeString()}]</span> <strong style="color:var(--accent)">${name}:</strong> ${msg}`;
     logEl.prepend(entry);
 }
+
 function startPolling() { stopPolling(); pollHandle = setInterval(refreshGameState, 1500); }
 function stopPolling() { if (pollHandle) clearInterval(pollHandle); pollHandle = null; }
 async function safeJson(r) { const t = await r.text(); try { return JSON.parse(t); } catch { return {message: t}; } }
+
 document.getElementById('btnResetPlacement').onclick = () => startPlacementMode();
 document.getElementById('btnReturnLobby').onclick = () => { navigateTo('screen-lobby'); refreshLobby(); };
 document.getElementById('btnDisconnect').onclick = () => { sessionStorage.clear(); location.reload(); };

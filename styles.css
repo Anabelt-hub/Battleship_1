@@ -15,7 +15,7 @@
   --panelShadow: 0 10px 30px rgba(0, 0, 0, 0.22);
 }
 
-/* Light Mode Override - Matches JS 'light-theme' toggle */
+/* Light Mode Override */
 body.light-theme {
   --bg: #f0f4f8;
   --card: #ffffff;
@@ -41,6 +41,7 @@ body {
   color: var(--text);
   transition: background 0.3s ease, color 0.3s ease;
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
 /* Header & Topbar */
@@ -48,7 +49,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 18px 20px;
+  padding: 12px 20px;
   border-bottom: 1px solid var(--border);
   background: var(--card);
 }
@@ -64,7 +65,7 @@ body {
 }
 
 h1 { margin: 0; font-size: 18px; letter-spacing: 0.5px; }
-.subtitle { margin: 2px 0 0; color: var(--muted); font-size: 12px; }
+.subtitle { margin: 2px 0 0; color: var(--muted); font-size: 11px; }
 
 /* View Management */
 .hidden { display: none !important; }
@@ -79,10 +80,10 @@ h1 { margin: 0; font-size: 18px; letter-spacing: 0.5px; }
   to { opacity: 1; transform: translateY(0); }
 }
 
-/* Updated Layouts: More spread out with bigger vertical spacing */
+/* Layouts & Panels */
 .view-container {
-  padding: 60px 20px;
-  max-width: 1000px;
+  padding: 20px;
+  max-width: 1200px;
   margin: 0 auto;
   display: flex;
   justify-content: center;
@@ -94,46 +95,91 @@ h1 { margin: 0; font-size: 18px; letter-spacing: 0.5px; }
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: 16px;
-  padding: 40px; /* Increased padding for internal breathing room */
+  padding: 20px;
   box-shadow: var(--panelShadow);
   backdrop-filter: blur(10px);
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 25px; /* Increased gap between form elements */
+  gap: 15px;
   text-align: center;
 }
 
-/* Typography Enhancements for better readability */
-h2 { font-size: 2.2rem; margin: 0; }
-p.hint { font-size: 1.2rem; margin: 0; color: var(--muted); }
-
-.layout {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-  gap: 30px;
+/* Battle Arena: Forced Side-by-Side */
+.battle-arena {
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: flex-start;
+  gap: 15px;
   width: 100%;
+  max-width: 100vw;
 }
 
-/* Spread-out Form Elements with larger fonts */
-input, select {
+.board-panel {
+  flex: 0 1 auto;
   padding: 15px;
+}
+
+/* Mini Board Dimensions for Single Screen */
+.board.mini-board {
+  display: grid;
+  grid-template-columns: repeat(11, 28px);
+  grid-template-rows: repeat(11, 28px);
+  gap: 2px;
+  padding: 5px;
+  background: rgba(0,0,0,0.2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  width: max-content;
+  margin: 0 auto;
+}
+
+.cell {
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  background: var(--cell);
+  border: 1px solid rgba(255,255,255,0.05);
+  cursor: pointer;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.side-panel-compact {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 280px;
+  flex: 0 0 auto;
+}
+
+/* Typography */
+h2 { font-size: 1.8rem; margin: 0; }
+h3 { font-size: 1.1rem; margin: 0; color: var(--accent); }
+p.hint { font-size: 1rem; margin: 0; color: var(--muted); }
+
+/* Form Elements */
+input, select {
+  padding: 10px;
   background: var(--cell);
   color: var(--text);
   border: 1px solid var(--border);
   border-radius: 8px;
-  font-size: 1.1rem; /* Bigger font for input */
+  font-size: 1rem;
 }
 
 button {
-  padding: 15px 25px;
+  padding: 10px 18px;
   border-radius: 8px;
   border: 1px solid var(--border);
   background: var(--card);
   color: var(--text);
   cursor: pointer;
   font-weight: 600;
-  font-size: 1.1rem; /* Bigger font for buttons */
   transition: all 0.2s;
 }
 
@@ -142,93 +188,50 @@ button:hover:not(:disabled) {
   transform: translateY(-1px);
 }
 
-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
+.success { background: #2ecc71 !important; color: white !important; border: none !important; text-transform: uppercase; }
+.danger { background: #e74c3c !important; color: white !important; border: none !important; text-transform: uppercase; }
 
-/* Updated Success/Danger Buttons for visibility */
-.success { 
-  background: #2ecc71 !important; 
-  color: white !important; 
-  border: none !important; 
-  text-transform: uppercase;
-  letter-spacing: 1px;
-}
-.danger { 
-  background: #e74c3c !important; 
-  color: white !important; 
-  border: none !important; 
-  text-transform: uppercase;
-  letter-spacing: 1px;
-}
+/* Visual Feedback Fix */
+.cell.ship { background: var(--ship); opacity: 0.7; }
+.cell.hit { background-color: var(--hit) !important; color: white; }
+.cell.miss { background-color: var(--miss) !important; color: white; }
 
-/* Grid & Board */
-.board {
-  display: grid;
-  grid-template-columns: repeat(10, 36px);
-  grid-template-rows: repeat(10, 36px);
-  gap: 6px;
-  padding: 15px;
-  background: rgba(0,0,0,0.2);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  width: max-content;
-  margin: 0 auto;
-}
+.cell.hit::after { content: "×"; color: white; font-size: 18px; font-weight: bold; }
+.cell.miss::after { content: "•"; color: white; font-size: 20px; }
 
-.cell {
-  width: 36px; height: 36px;
+.cell.sunk { background: #333 !important; border-radius: 0; }
+.cell.sunk::after { content: "🚢"; font-size: 14px; }
+
+/* Logs & Stats */
+.small-log {
+  max-height: 150px;
+  overflow-y: auto;
+  width: 100%;
+  font-size: 11px;
+  background: rgba(4,6,14,0.55);
+  padding: 8px;
   border-radius: 8px;
-  background: var(--cell);
-  border: 1px solid rgba(255,255,255,0.05);
-  cursor: pointer;
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  border: 1px solid var(--border);
+  text-align: left;
 }
 
-.cell.ship { background: var(--ship); opacity: 0.8; box-shadow: inset 0 0 10px rgba(0,0,0,0.3); }
-.cell.hit { background: var(--hit) !important; }
-.cell.miss { background: var(--miss) !important; }
-
-/* Hit/Miss Icons */
-.cell.hit::after { content: "×"; color: white; font-size: 22px; font-weight: bold; }
-.cell.miss::after { content: "•"; color: white; font-size: 26px; }
-
-/* Sunk Boat Visual */
-.cell.sunk {
-  background: #333 !important;
-  border-radius: 0;
-  opacity: 1;
-}
-.cell.sunk::after { content: "🚢"; font-size: 18px; }
+.hitTxt { color: var(--hit) !important; font-weight: bold; }
+.missTxt { color: var(--miss) !important; font-weight: bold; }
 
 /* Lobby List */
 .scroll-list {
-  max-height: 400px;
+  max-height: 300px;
   overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: 12px;
-  margin-top: 10px;
 }
 
 .game-item {
   display: flex;
   justify-content: space-between;
-  align-items: center;
-  padding: 15px;
+  padding: 10px;
   border-bottom: 1px solid var(--border);
-}
-
-.game-item:last-child { border-bottom: none; }
-
-/* Summary Screen */
-#missionResult {
-  text-transform: uppercase;
-  letter-spacing: 2px;
-  margin-bottom: 20px;
+  font-size: 13px;
 }
 
 /* Status Bar */
@@ -236,35 +239,11 @@ button:disabled {
   position: fixed;
   bottom: 0;
   width: 100%;
-  padding: 12px 20px;
+  padding: 8px 20px;
   background: var(--card);
   border-top: 1px solid var(--border);
-  font-size: 13px;
+  font-size: 12px;
   display: flex;
   gap: 20px;
+  z-index: 100;
 }
-
-/* Ensure the battle layout stays within the screen width */
-#screen-game .layout {
-    display: flex;
-    flex-wrap: wrap; /* Wraps panels if the screen is too narrow */
-    justify-content: center;
-    gap: 20px;
-    padding-bottom: 80px; /* Space for status bar */
-}
-
-/* Fix Captain's Log to be visible without sideways scrolling */
-.logpanel {
-    width: 100%; /* Makes log take full width below boards */
-    max-width: 800px;
-}
-
-.log {
-    max-height: 200px;
-    overflow-y: auto;
-    width: 100%;
-}
-
-/* Ensure colors in the log are high-contrast for your demo */
-.hitTxt { color: var(--hit) !important; font-weight: bold; }
-.missTxt { color: var(--miss) !important; font-weight: bold; }

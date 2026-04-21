@@ -18,7 +18,8 @@ const logEl = document.getElementById("log");
 // --- VIEW MANAGEMENT & PERSISTENCE ---
 function navigateTo(screenId) {
     document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
-    document.getElementById(screenId).classList.remove('hidden');
+    const target = document.getElementById(screenId);
+    if (target) target.classList.remove('hidden');
     
     // Save state for refresh persistence
     sessionStorage.setItem('currentView', screenId);
@@ -26,7 +27,6 @@ function navigateTo(screenId) {
     updateNavButtons(screenId);
 }
 
-// --- NAVIGATION BUTTON LOGIC ---
 function updateNavButtons(view) {
     const dsc = document.getElementById('nav-disconnect');
     const lgo = document.getElementById('nav-logout');
@@ -54,7 +54,7 @@ document.getElementById('btnConnectServer').onclick = async () => {
             alert("Uplink failed: Server rejected request.");
         }
     } catch (err) {
-        alert("Network Error: Could not reach " + currentBaseUrl);
+        alert("Network Error: Could not reach server.");
     }
 };
 
@@ -69,7 +69,7 @@ document.getElementById('btnLogin').onclick = async () => {
     }
 };
 
-// --- SCREEN 3: LOBBY (Auto-Refreshing) ---
+// --- SCREEN 3: LOBBY ---
 setInterval(() => {
     const lobby = document.getElementById('screen-lobby');
     if (lobby && !lobby.classList.contains('hidden')) {
@@ -77,12 +77,33 @@ setInterval(() => {
     }
 }, 3000);
 
+document.getElementById('btnCreateRoom').onclick = async () => {
+    try {
+        const grid = document.getElementById('gridSizeInput').value || 10;
+        const maxP = document.getElementById('maxPlayersInput').value || 2;
+
+        const res = await fetch(`${currentBaseUrl}/api/games`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                grid_size: parseInt(grid),
+                max_players: parseInt(maxP),
+                creator_id: playerId
+            })
+        });
+        const data = await safeJson(res);
+        if (!res.ok) throw new Error(data.message);
+        await joinGameById(data.game_id); 
+    } catch (err) {
+        alert(`Creation failed: ${err.message}`);
+    }
+};
+
 async function refreshLobby() {
     const listEl = document.getElementById('gameList');
     try {
         const res = await fetch(`${currentBaseUrl}/api/games`);
         const games = await safeJson(res);
-        
         listEl.innerHTML = games.map(g => `
             <div class="game-item">
                 <span>Room #${g.game_id} (${g.status})</span>
@@ -96,7 +117,7 @@ async function refreshLobby() {
     }
 }
 
-// --- SCREEN 4: SHIP PLACEMENT ---
+// --- SCREEN 4: PLACEMENT ---
 async function joinGameById(id) {
     try {
         const res = await fetch(`${currentBaseUrl}/api/games/${id}/join`, {
@@ -106,7 +127,7 @@ async function joinGameById(id) {
         });
         if (!res.ok) throw new Error((await safeJson(res)).message);
         gameId = id;
-        localStorage.setItem("currentGameId", String(gameId));
+        sessionStorage.setItem('currentGameId', gameId);
         startPlacementMode();
     } catch (err) {
         alert(`Join Error: ${err.message}`);
@@ -124,6 +145,7 @@ function startPlacementMode() {
 
 function renderPlacementBoard() {
     const board = document.getElementById("placementBoard");
+    if(!board) return;
     board.innerHTML = "";
     board.style.gridTemplateColumns = `repeat(${SIZE + 1}, 32px)`;
     
@@ -148,7 +170,6 @@ function renderPlacementBoard() {
 function handlePlacementClick(row, col) {
     if (!isPlacementMode || selectedShips.some(s => s.row === row && s.col === col)) return;
     selectedShips.push({ row, col });
-
     const currentGoal = SHIP_SEQUENCE.slice(0, currentPlacementIndex + 1).reduce((a, b) => a + b, 0);
     if (selectedShips.length === currentGoal) {
         currentPlacementIndex++;
@@ -162,7 +183,7 @@ function handlePlacementClick(row, col) {
     renderPlacementBoard();
 }
 
-// --- SCREEN 5: THE BATTLE (Side-by-Side Grid Logic) ---
+// --- SCREEN 5: BATTLE ---
 async function firePhasers(row, col) {
     try {
         const res = await fetch(`${currentBaseUrl}/api/games/${gameId}/fire`, {
@@ -178,7 +199,6 @@ async function firePhasers(row, col) {
         if (cell) {
             cell.style.backgroundColor = data.result === 'hit' ? 'var(--hit)' : 'var(--miss)';
         }
-
         addToLog(`[${data.result.toUpperCase()}] Sector ${String.fromCharCode(65+row)}-${col+1}`, data.result);
         await refreshGameState();
     } catch (err) { console.error(err); }
@@ -204,8 +224,8 @@ async function renderActiveBoards(gameData) {
 
 function renderGrid(containerId, moves, isPlayer, idPrefix) {
     const board = document.getElementById(containerId);
+    if (!board) return;
     board.innerHTML = "";
-    board.style.gridTemplateColumns = `repeat(${SIZE + 1}, 28px)`;
 
     const shotMap = new Map();
     moves.forEach(m => {
@@ -229,10 +249,10 @@ function renderGrid(containerId, moves, isPlayer, idPrefix) {
 
                 if (isPlayer && selectedShips.some(s => s.row === r && s.col === c)) item.classList.add("ship");
                 if (shotMap.has(key)) {
-                    item.classList.add(shotMap.get(key));
-                    if (shotMap.get(key) === "hit") item.classList.add("sunk");
+                    const status = shotMap.get(key);
+                    item.classList.add(status);
+                    item.style.backgroundColor = (status === 'hit') ? 'var(--hit)' : 'var(--miss)';
                 }
-
                 if (!isPlayer) item.onclick = () => firePhasers(r, c);
                 cell.appendChild(item);
             }
@@ -241,27 +261,35 @@ function renderGrid(containerId, moves, isPlayer, idPrefix) {
     }
 }
 
-// --- GLOBAL HELPERS & REFRESH LOAD ---
+// --- GLOBAL LOAD & NAVIGATION ---
 window.addEventListener("load", () => {
     const savedView = sessionStorage.getItem('currentView');
     const savedServer = sessionStorage.getItem('currentServer');
-    const savedName = localStorage.getItem("persistentPlayerName");
+    const savedGameId = sessionStorage.getItem('currentGameId');
+    const savedShips = sessionStorage.getItem('persistentShips');
 
-    if (savedName) document.getElementById("playerName").value = savedName;
     if (savedServer) {
         currentBaseUrl = savedServer;
         document.getElementById('activeServerUrl').textContent = `Connected: ${currentBaseUrl}`;
     }
+    if (savedShips) selectedShips = JSON.parse(savedShips);
+    if (savedGameId) {
+        gameId = Number(savedGameId);
+        startPolling();
+    }
     if (savedView) navigateTo(savedView);
     else navigateTo('screen-server');
+
+    const savedName = localStorage.getItem("persistentPlayerName");
+    if (savedName) document.getElementById("playerName").value = savedName;
 });
 
-// Navigation buttons handlers
+// Top bar handlers
 document.getElementById('nav-disconnect').onclick = () => { sessionStorage.clear(); location.reload(); };
 document.getElementById('nav-logout').onclick = () => { navigateTo('screen-login'); };
 document.getElementById('nav-lobby').onclick = () => { navigateTo('screen-lobby'); refreshLobby(); };
 
-// Standard helper functions
+// Existing helper logic maintained
 async function ensurePlayer() {
     const name = document.getElementById("playerName").value || "Captain_Gabbie";
     const res = await fetch(`${currentBaseUrl}/api/players`, {
@@ -275,6 +303,51 @@ async function ensurePlayer() {
     localStorage.setItem("persistentPlayerName", name);
 }
 
+document.getElementById('btnConfirmPlacement').onclick = async () => {
+    try {
+        const res = await fetch(`${currentBaseUrl}/api/games/${gameId}/place`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ player_id: playerId, ships: selectedShips })
+        });
+        if (!res.ok) throw new Error("Deployment rejected.");
+        sessionStorage.setItem('persistentShips', JSON.stringify(selectedShips));
+        navigateTo('screen-game');
+        startPolling();
+    } catch (err) { alert(err.message); }
+};
+
+async function refreshGameState() {
+    if (!gameId || !playerId) return;
+    const gameRes = await fetch(`${currentBaseUrl}/api/games/${gameId}`);
+    const gameData = await safeJson(gameRes);
+    if (gameData.status === "finished") showFinalSummary(gameData);
+    else updateTurnIndicator(gameData.current_turn_player_id);
+    renderActiveBoards(gameData);
+}
+
+function showFinalSummary(gameData) {
+    stopPolling();
+    navigateTo('screen-summary');
+    const isWin = Number(gameData.winner_id) === Number(playerId);
+    document.getElementById('missionResult').textContent = isWin ? "VICTORY" : "DEFEAT";
+    document.getElementById('missionResult').style.color = isWin ? "#2ecc71" : "#ff5c5c";
+    updateStatsBox(playerId);
+}
+
+// Utility Helpers
+function updateTurnIndicator(turnId) {
+    const ind = document.getElementById('turnIndicator');
+    if (!ind) return;
+    const myTurn = Number(turnId) === Number(playerId);
+    ind.textContent = myTurn ? "YOUR TURN: FIRE WHEN READY" : "OPPONENT TURN: BRACING FOR IMPACT";
+    ind.style.color = myTurn ? "#2ecc71" : "#ff5c5c";
+}
+async function updateStatsBox(id) {
+    const res = await fetch(`${currentBaseUrl}/api/players/${id}/stats`);
+    const stats = await res.json();
+    document.getElementById("stats-container").innerHTML = `<div class="panel"><h3>ARCHIVE</h3><p>WON: ${stats.wins}</p><p>LOST: ${stats.losses}</p></div>`;
+}
 function updatePlacementInstructions(msg) { document.getElementById('placementInstructions').textContent = msg; }
 function addToLog(msg, type) {
     const entry = document.createElement("div");
@@ -285,65 +358,6 @@ function addToLog(msg, type) {
 function startPolling() { stopPolling(); pollHandle = setInterval(refreshGameState, 1500); }
 function stopPolling() { if (pollHandle) clearInterval(pollHandle); pollHandle = null; }
 async function safeJson(r) { const t = await r.text(); try { return JSON.parse(t); } catch { return {message: t}; } }
-
-// Bridge existing buttons to new SPA logic
-document.getElementById('btnConfirmPlacement').onclick = async () => {
-    try {
-        const res = await fetch(`${currentBaseUrl}/api/games/${gameId}/place`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ player_id: playerId, ships: selectedShips })
-        });
-        if (!res.ok) throw new Error("Deployment rejected.");
-        navigateTo('screen-game');
-        startPolling();
-    } catch (err) { alert(err.message); }
-};
 document.getElementById('btnResetPlacement').onclick = () => startPlacementMode();
 document.getElementById('btnReturnLobby').onclick = () => { navigateTo('screen-lobby'); refreshLobby(); };
 document.getElementById('btnDisconnect').onclick = () => { sessionStorage.clear(); location.reload(); };
-
-async function refreshGameState() {
-    if (!gameId || !playerId) return;
-    const gameRes = await fetch(`${currentBaseUrl}/api/games/${gameId}`);
-    const gameData = await safeJson(gameRes);
-    if (gameData.status === "playing") {
-        updateTurnIndicator(gameData.current_turn_player_id);
-    } else if (gameData.status === "finished") {
-        showFinalSummary(gameData);
-    }
-    renderActiveBoards(gameData);
-}
-
-function updateTurnIndicator(turnId) {
-    const indicator = document.getElementById('turnIndicator');
-    if (Number(turnId) === Number(playerId)) {
-        indicator.textContent = "YOUR TURN: FIRE WHEN READY";
-        indicator.style.color = "#2ecc71";
-    } else {
-        indicator.textContent = "OPPONENT TURN: BRACING FOR IMPACT";
-        indicator.style.color = "#ff5c5c";
-    }
-}
-
-function showFinalSummary(gameData) {
-    stopPolling();
-    navigateTo('screen-summary');
-    const isWin = Number(gameData.winner_id) === Number(playerId);
-    document.getElementById('missionResult').textContent = isWin ? "MISSION ACCOMPLISHED" : "MISSION FAILURE";
-    document.getElementById('missionResult').style.color = isWin ? "#2ecc71" : "#ff5c5c";
-    updateStatsBox(playerId);
-}
-
-async function updateStatsBox(id) {
-    const res = await fetch(`${currentBaseUrl}/api/players/${id}/stats`);
-    const stats = await res.json();
-    const container = document.getElementById("stats-container");
-    container.innerHTML = `
-        <div class="panel">
-            <h3>TACTICAL ARCHIVE</h3>
-            <p>WON: ${stats.wins}</p>
-            <p>LOST: ${stats.losses}</p>
-            <p>ACCURACY: ${(stats.accuracy * 100).toFixed(1)}%</p>
-        </div>`;
-}

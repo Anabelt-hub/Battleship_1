@@ -224,19 +224,32 @@ async function firePhasers(row, col) {
 }
 
 async function renderActiveBoards(gameData) {
-    const movesRes = await fetch(`${currentBaseUrl}/api/games/${gameId}/moves`);
+    // 1. Fetch moves with a cache-buster to ensure we get the latest data
+    const movesRes = await fetch(`${currentBaseUrl}/api/games/${gameId}/moves?t=${Date.now()}`);
     const movesData = await safeJson(movesRes);
     const moves = movesData.moves || [];
 
+    // 2. LIVE STATS CALCULATION
+    // We must force both IDs to Numbers to ensure the .filter works!
     const myMoves = moves.filter(m => Number(m.player_id) === Number(playerId));
+    
     const hits = myMoves.filter(m => m.result === 'hit').length;
     const misses = myMoves.filter(m => m.result === 'miss').length;
-    const accuracy = myMoves.length > 0 ? ((hits / myMoves.length) * 100).toFixed(1) : 0;
+    
+    // Calculate accuracy percentage
+    const totalShots = myMoves.length;
+    const accuracy = totalShots > 0 ? ((hits / totalShots) * 100).toFixed(1) : "0.0";
 
-    document.getElementById('liveHits').textContent = hits;
-    document.getElementById('liveMisses').textContent = misses;
-    document.getElementById('liveAccuracy').textContent = `${accuracy}%`;
+    // 3. UPDATE THE UI ELEMENTS
+    const hitsEl = document.getElementById('liveHits');
+    const missesEl = document.getElementById('liveMisses');
+    const accuracyEl = document.getElementById('liveAccuracy');
 
+    if (hitsEl) hitsEl.textContent = hits;
+    if (missesEl) missesEl.textContent = misses;
+    if (accuracyEl) accuracyEl.textContent = `${accuracy}%`;
+
+    // 4. Update the actual boards
     renderGrid("activePlayerBoard", moves, true, "player-cell");
     renderGrid("activeEnemyBoard", moves, false, "enemy-cell");
 }

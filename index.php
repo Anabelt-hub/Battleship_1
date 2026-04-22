@@ -139,16 +139,17 @@ if (preg_match("#^api/games/(\d+)$#", $path, $m) && $method === "GET") {
     $s = $pdo->prepare("SELECT * FROM games WHERE game_id=?"); $s->execute([$gameId]);
     $g = $s->fetch();
     if (!$g) send_error("not_found", "Game not found", 404);
-    $s = $pdo->prepare("SELECT player_id FROM game_players WHERE game_id=?"); $s->execute([$gameId]);
+    $s = $pdo->prepare("SELECT gp.player_id, p.username FROM game_players gp JOIN players p ON p.player_id = gp.player_id WHERE gp.game_id=? ORDER BY gp.player_id ASC");
+    $s->execute([$gameId]);
     $players = [];
     foreach ($s->fetchAll() as $row) {
         $pid = (int)$row["player_id"];
         $sr = $pdo->prepare("SELECT COUNT(*) as rem FROM ships s WHERE s.game_id=? AND s.player_id=?
             AND NOT EXISTS(SELECT 1 FROM moves mv WHERE mv.game_id=s.game_id AND mv.row=s.row AND mv.col=s.col AND mv.result='hit')");
         $sr->execute([$gameId, $pid]);
-        $players[] = ["player_id"=>$pid, "ships_remaining"=>(int)$sr->fetch()["rem"]];
+        $players[] = ["player_id"=>$pid, "username"=>$row["username"], "ships_remaining"=>(int)$sr->fetch()["rem"]];
     }
-    send_json(["game_id"=>(int)$g["game_id"],"grid_size"=>(int)$g["grid_size"],"status"=>$g["status"],"players"=>$players,"current_turn_player_id"=>$g["current_turn_player_id"]]);
+    send_json(["game_id"=>(int)$g["game_id"],"grid_size"=>(int)$g["grid_size"],"max_players"=>(int)$g["max_players"],"status"=>$g["status"],"winner_id"=>$g["winner_id"] !== null ? (int)$g["winner_id"] : null,"players"=>$players,"current_turn_player_id"=>$g["current_turn_player_id"] !== null ? (int)$g["current_turn_player_id"] : null]);
 }
 
 // POST /api/games/{id}/join
@@ -156,8 +157,42 @@ if (preg_match("#^api/games/(\d+)/join$#", $path, $m) && $method === "POST") {
     $gameId = (int)$m[1];
     $body = json_decode(file_get_contents("php://input"), true) ?? [];
     $playerId = (int)($body["player_id"] ?? 0);
+    if ($playerId <= 0) send_error("bad_request", "Missing or invalid player_id", 400);
+
+    $s = $pdo->prepare("SELECT game_id, max_players, status FROM games WHERE game_id=?");
+    $s->execute([$gameId]);
+    $game = $s->fetch();
+    if (!$game) send_error("not_found", "Game not found", 404);
+    if ($game["status"] === "finished") send_error("conflict", "Game already finished", 409);
+
+    $s = $pdo->prepare("SELECT 1 FROM players WHERE player_id=?");
+    $s->execute([$playerId]);
+    if (!$s->fetch()) send_error("not_found", "Player not found", 404);
+
+    $s = $pdo->prepare("SELECT 1 FROM game_players WHERE game_id=? AND player_id=?");
+    $s->execute([$gameId, $playerId]);
+    if ($s->fetch()) send_json(["status"=>"joined","game_id"=>$gameId,"player_id"=>$playerId,"message"=>"Player already in game"]);
+
+    $s = $pdo->prepare("SELECT COUNT(*) AS c FROM game_players WHERE game_id=?");
+    $s->execute([$gameId]);
+    $count = (int)$s->fetch()["c"];
+    if ($count >= (int)$game["max_players"]) send_error("conflict", "Game is full", 409);
+
     $pdo->prepare("INSERT INTO game_players (game_id, player_id) VALUES (?,?)")->execute([$gameId, $playerId]);
     send_json(["status"=>"joined","game_id"=>$gameId,"player_id"=>$playerId]);
+}
+
+
+// GET /api/games/{id}/moves
+if (preg_match("#^api/games/(\d+)/moves$#", $path, $m) && $method === "GET") {
+    $gameId = (int)$m[1];
+    $s = $pdo->prepare("SELECT 1 FROM games WHERE game_id=?");
+    $s->execute([$gameId]);
+    if (!$s->fetch()) send_error("not_found", "Game not found", 404);
+
+    $s = $pdo->prepare("SELECT move_id, game_id, player_id, row, col, result, fired_at FROM moves WHERE game_id=? ORDER BY move_id ASC");
+    $s->execute([$gameId]);
+    send_json(["moves" => $s->fetchAll()]);
 }
 
 // POST /api/games/{id}/place (12 Coordinate Check for 5, 4, 3 sequence)

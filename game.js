@@ -141,6 +141,14 @@ document.getElementById('btnCreateRoom').onclick = async () => {
 };
 
 async function refreshLobby() {
+    // 1. Restore playerId if it was lost during a page refresh
+    if (!playerId) {
+        const savedId = localStorage.getItem("currentPlayerId");
+        if (savedId) {
+            playerId = Number(savedId);
+        }
+    }
+
     const listEl = document.getElementById('gameList');
     try {
         const res = await fetch(`${currentBaseUrl}/api/games`);

@@ -257,3 +257,21 @@ button:hover:not(:disabled) {
     width: max-content;
     margin: 0 auto;
 }
+
+
+.grid-label, .grid-corner {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 0.95rem;
+}
+
+#placementBoard .grid-label,
+#placementBoard .grid-corner {
+  width: 32px;
+  height: 32px;
+}

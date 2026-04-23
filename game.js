@@ -242,7 +242,8 @@ function handlePlacementClick(row, col) {
 // --- SCREEN 5: THE BATTLE ---
 async function firePhasers(row, col) {
     const cell = document.getElementById(`enemy-cell-${row}-${col}`);
-    if (!cell || cell.classList.contains('hit') || cell.classList.contains('miss')) return;
+    // Prevent double-firing or firing at already hit/missed cells
+    if (!cell || cell.classList.contains('hit') || cell.classList.contains('miss') || cell.disabled) return;
 
     try {
         const res = await fetch(`${currentBaseUrl}/api/games/${gameId}/fire`, {
@@ -251,18 +252,35 @@ async function firePhasers(row, col) {
             body: JSON.stringify({ player_id: playerId, row, col })
         });
         const data = await safeJson(res);
-        if (!res.ok) { addToLog(data.message, "miss"); return; }
+        
+        if (!res.ok) { 
+            addToLog(data.message, "miss"); 
+            return; 
+        }
 
-        const resultClass = data.result;
+        // 1. IMMEDIATE VISUAL FEEDBACK
+        const resultClass = data.result; // 'hit' or 'miss'
         cell.classList.add(resultClass);
         cell.style.backgroundColor = (resultClass === 'hit') ? 'var(--hit)' : 'var(--miss)';
+        
+        // 2. DISABLE THE CELL
+        // This ensures the color stays even if renderGrid() runs 
+        // before the /moves API list is updated on the server.
+        cell.disabled = true;
 
         addToLog(`Fired at ${String.fromCharCode(65+row)}-${col+1} (${data.result.toUpperCase()})`, data.result, playerId);
+        
+        // 3. SLIGHT DELAY
+        // Give the PostgreSQL database 300ms to finish the 'write' 
+        // before we ask for the new 'read' state.
+        setTimeout(() => {
+            refreshGameState();
+        }, 300); 
 
-        setTimeout(() => { refreshGameState(); }, 300);
-    } catch (err) { console.error(err); }
+    } catch (err) { 
+        console.error("Tactical Error:", err); 
+    }
 }
-
 async function renderActiveBoards(gameData) {
     const movesRes = await fetch(`${currentBaseUrl}/api/games/${gameId}/moves?t=${Date.now()}`);
     const movesData = await safeJson(movesRes);

@@ -314,10 +314,12 @@ async function renderActiveBoards(gameData) {
 function renderGrid(containerId, moves, isPlayer, idPrefix) {
     const board = document.getElementById(containerId);
     if (!board) return;
+    
+    // We only want to fully clear the board if it's currently empty 
+    // or if we are positive the server data has caught up.
     const size = getBoardSize();
-    board.innerHTML = "";
-    board.style.gridTemplateColumns = `repeat(${size + 1}, 28px)`;
-
+    
+    // Create a Map of the moves for quick lookup
     const shotMap = new Map();
     moves.forEach(m => {
         const key = `${m.row},${m.col}`;
@@ -325,28 +327,54 @@ function renderGrid(containerId, moves, isPlayer, idPrefix) {
         if (!isPlayer && Number(m.player_id) === Number(playerId)) shotMap.set(key, m.result);
     });
 
+    // Instead of innerHTML = "", we only update cells that don't have a 'pending' lock
+    if (board.children.length === 0) {
+        board.innerHTML = "";
+        board.style.gridTemplateColumns = `repeat(${size + 1}, 28px)`;
+    }
+
     for (let r = -1; r < size; r++) {
         for (let c = -1; c < size; c++) {
-            const cell = document.createElement("div");
-            if (r === -1 || c === -1) {
-                cell.className = "grid-label";
-                if (r === -1 && c !== -1) cell.textContent = c + 1;
-                if (c === -1 && r !== -1) cell.textContent = String.fromCharCode(65 + r);
-            } else {
-                const item = document.createElement("button");
-                item.className = "cell";
-                item.id = `${idPrefix}-${r}-${c}`;
-                const key = `${r},${c}`;
-                if (isPlayer && selectedShips.some(s => s.row === r && s.col === c)) item.classList.add("ship");
-                if (shotMap.has(key)) {
-                    const status = shotMap.get(key);
-                    item.classList.add(status);
-                    item.style.backgroundColor = (status === 'hit') ? 'var(--hit)' : 'var(--miss)';
+            const key = `${r},${c}`;
+            let cell = document.getElementById(`${idPrefix}-${r}-${c}`);
+            
+            // If the cell doesn't exist yet, create it
+            if (!cell) {
+                const wrapper = document.createElement("div");
+                if (r === -1 || c === -1) {
+                    wrapper.className = "grid-label";
+                    if (r === -1 && c !== -1) wrapper.textContent = c + 1;
+                    if (c === -1 && r !== -1) wrapper.textContent = String.fromCharCode(65 + r);
+                    board.appendChild(wrapper);
+                    continue;
+                } else {
+                    const btn = document.createElement("button");
+                    btn.className = "cell";
+                    btn.id = `${idPrefix}-${r}-${c}`;
+                    wrapper.appendChild(btn);
+                    board.appendChild(wrapper);
+                    cell = btn;
                 }
-                if (!isPlayer) item.onclick = () => firePhasers(r, c);
-                cell.appendChild(item);
             }
-            board.appendChild(cell);
+
+            // --- THE FIX: DON'T OVERWRITE RECENT CLICKS ---
+            // If the cell is already marked as hit/miss, don't let the refresh wipe it
+            if (cell.classList.contains('hit') || cell.classList.contains('miss')) continue;
+
+            // Apply ship styling for your own board
+            if (isPlayer && selectedShips.some(s => s.row === r && s.col === c)) {
+                cell.classList.add("ship");
+            }
+
+            // Apply shot results from the server data
+            if (shotMap.has(key)) {
+                const status = shotMap.get(key);
+                cell.classList.add(status);
+                cell.style.backgroundColor = (status === 'hit') ? 'var(--hit)' : 'var(--miss)';
+                cell.disabled = true;
+            } else if (!isPlayer) {
+                cell.onclick = () => firePhasers(r, c);
+            }
         }
     }
 }

@@ -35,9 +35,18 @@ function persistSession() {
     localStorage.setItem('currentPlacementDirection', currentPlacementDirection || 'horizontal');
 }
 
-
 function clearSessionState() {
-    ['currentServer','currentView','currentGameId','currentPlayerId','currentGridSize','persistentShips','persistentPlacedShips','currentPlacementDirection'].forEach(k => localStorage.removeItem(k));
+    [
+        'currentServer',
+        'currentView',
+        'currentGameId',
+        'currentPlayerId',
+        'currentGridSize',
+        'persistentShips',
+        'persistentPlacedShips',
+        'currentPlacementDirection'
+    ].forEach(k => localStorage.removeItem(k));
+
     gameId = null;
     playerId = null;
     currentGridSize = DEFAULT_SIZE;
@@ -54,12 +63,16 @@ async function loadGameMeta(id) {
     const res = await fetch(`${currentBaseUrl}/api/games/${id}?t=${Date.now()}`);
     const data = await safeJson(res);
     if (!res.ok) throw new Error(data.message || 'Unable to load game');
+
     currentGridSize = Number(data.grid_size) || DEFAULT_SIZE;
+
     if (Array.isArray(data.players)) {
         data.players.forEach(p => {
-            playerMap[p.player_id] = p.username || (Number(p.player_id) === Number(playerId) ? 'You' : `Player ${p.player_id}`);
+            playerMap[p.player_id] =
+                p.username || (Number(p.player_id) === Number(playerId) ? 'You' : `Player ${p.player_id}`);
         });
     }
+
     persistSession();
     return data;
 }
@@ -137,8 +150,10 @@ document.getElementById('btnCreateRoom').onclick = async () => {
                 creator_id: playerId
             })
         });
+
         const data = await safeJson(res);
         if (!res.ok) throw new Error(data.message);
+
         currentGridSize = Number(grid) || DEFAULT_SIZE;
         persistSession();
         await joinGameById(data.game_id);
@@ -148,7 +163,6 @@ document.getElementById('btnCreateRoom').onclick = async () => {
 };
 
 async function refreshLobby() {
-    // 1. Restore playerId if it was lost during a page refresh
     if (!playerId) {
         const savedId = localStorage.getItem("currentPlayerId");
         if (savedId) {
@@ -157,15 +171,17 @@ async function refreshLobby() {
     }
 
     const listEl = document.getElementById('gameList');
+
     try {
         const res = await fetch(`${currentBaseUrl}/api/games`);
         const games = await safeJson(res);
+
         listEl.innerHTML = games.map(g => `
             <div class="game-item">
                 <span>Room #${g.game_id} (${g.status}) · ${g.grid_size}x${g.grid_size} · ${g.max_players} players</span>
-                ${g.status !== 'finished' ?
-                    `<button class="success" onclick="joinGameById(${g.game_id})">Join</button>` :
-                    '<span class="muted">Closed</span>'}
+                ${g.status !== 'finished'
+                    ? `<button class="success" onclick="joinGameById(${g.game_id})">Join</button>`
+                    : '<span class="muted">Closed</span>'}
             </div>
         `).join('') || '<p class="hint">No active signals found.</p>';
     } catch (err) {
@@ -181,8 +197,10 @@ async function joinGameById(id) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ player_id: playerId })
         });
+
         const data = await safeJson(res);
         if (!res.ok) throw new Error(data.message || 'Join failed');
+
         gameId = id;
         await loadGameMeta(gameId);
         startPlacementMode();
@@ -200,8 +218,10 @@ function startPlacementMode() {
     lastMoveCount = 0;
     navigateTo('screen-placement');
     updatePlacementInstructions(`Place your Carrier (5 squares) on the ${getBoardSize()}x${getBoardSize()} grid`);
+
     const confirmBtn = document.getElementById('btnConfirmPlacement');
     if (confirmBtn) confirmBtn.disabled = true;
+
     renderPlacementBoard();
 }
 
@@ -231,13 +251,15 @@ function syncPlacementControls() {
     const dirBtn = document.getElementById('btnRotatePlacement');
     const dirLabel = document.getElementById('placementDirectionLabel');
     const directionText = currentPlacementDirection === 'horizontal' ? 'Horizontal' : 'Vertical';
+
     if (dirBtn) dirBtn.textContent = `Direction: ${directionText}`;
     if (dirLabel) dirLabel.textContent = `Current direction: ${directionText}`;
 }
 
 function renderPlacementBoard() {
     const board = document.getElementById("placementBoard");
-    if(!board) return;
+    if (!board) return;
+
     const size = getBoardSize();
     board.innerHTML = "";
     board.style.gridTemplateColumns = `repeat(${size + 1}, 32px)`;
@@ -246,18 +268,27 @@ function renderPlacementBoard() {
     for (let r = -1; r < size; r++) {
         for (let c = -1; c < size; c++) {
             const cell = document.createElement("div");
+
             if (r === -1 && c === -1) {
                 cell.className = "grid-corner";
-            }
-            else if (r === -1) { cell.textContent = c + 1; cell.className = "grid-label"; }
-            else if (c === -1) { cell.textContent = String.fromCharCode(65 + r); cell.className = "grid-label"; }
-            else {
+            } else if (r === -1) {
+                cell.textContent = c + 1;
+                cell.className = "grid-label";
+            } else if (c === -1) {
+                cell.textContent = String.fromCharCode(65 + r);
+                cell.className = "grid-label";
+            } else {
                 const btn = document.createElement("button");
                 btn.className = "cell";
-                if (selectedShips.some(s => s.row === r && s.col === c)) btn.classList.add("ship");
+
+                if (selectedShips.some(s => s.row === r && s.col === c)) {
+                    btn.classList.add("ship");
+                }
+
                 btn.onclick = () => handlePlacementClick(r, c);
                 cell.appendChild(btn);
             }
+
             board.appendChild(cell);
         }
     }
@@ -279,6 +310,7 @@ function handlePlacementClick(row, col) {
         direction: currentPlacementDirection,
         cells: shipCells
     });
+
     selectedShips = placedShips.flatMap(ship => ship.cells.map(cell => ({ ...cell })));
     currentPlacementIndex++;
     persistSession();
@@ -290,13 +322,14 @@ function handlePlacementClick(row, col) {
         const confirmBtn = document.getElementById('btnConfirmPlacement');
         if (confirmBtn) confirmBtn.disabled = false;
     }
+
     renderPlacementBoard();
 }
 
 // --- SCREEN 5: THE BATTLE ---
 async function firePhasers(row, col) {
     const cell = document.getElementById(`enemy-cell-${row}-${col}`);
-    // Prevent double-firing or firing at already hit/missed cells
+
     if (!cell || cell.classList.contains('hit') || cell.classList.contains('miss') || cell.disabled) return;
 
     try {
@@ -305,36 +338,32 @@ async function firePhasers(row, col) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ player_id: playerId, row, col })
         });
+
         const data = await safeJson(res);
-        
-        if (!res.ok) { 
-            addToLog(data.message, "miss"); 
-            return; 
+
+        if (!res.ok) {
+            addToLog(data.message || "Shot rejected.", "miss");
+            return;
         }
 
-        // 1. IMMEDIATE VISUAL FEEDBACK
-        const resultClass = data.result; // 'hit' or 'miss'
+        const resultClass = data.result;
         cell.classList.add(resultClass);
-        cell.style.backgroundColor = (resultClass === 'hit') ? 'var(--hit)' : 'var(--miss)';
-        
-        // 2. DISABLE THE CELL
-        // This ensures the color stays even if renderGrid() runs 
-        // before the /moves API list is updated on the server.
         cell.disabled = true;
 
-        addToLog(`Fired at ${String.fromCharCode(65+row)}-${col+1} (${data.result.toUpperCase()})`, data.result, playerId);
-        
-        // 3. SLIGHT DELAY
-        // Give the PostgreSQL database 300ms to finish the 'write' 
-        // before we ask for the new 'read' state.
+        addToLog(
+            `Fired at ${String.fromCharCode(65 + row)}-${col + 1} (${String(data.result).toUpperCase()})`,
+            data.result,
+            playerId
+        );
+
         setTimeout(() => {
             refreshGameState();
-        }, 300); 
-
-    } catch (err) { 
-        console.error("Tactical Error:", err); 
+        }, 300);
+    } catch (err) {
+        console.error("Tactical Error:", err);
     }
 }
+
 async function renderActiveBoards(gameData) {
     const movesRes = await fetch(`${currentBaseUrl}/api/games/${gameId}/moves?t=${Date.now()}`);
     const movesData = await safeJson(movesRes);
@@ -343,7 +372,11 @@ async function renderActiveBoards(gameData) {
     if (moves.length > lastMoveCount) {
         moves.slice(lastMoveCount).forEach(m => {
             if (Number(m.player_id) !== Number(playerId)) {
-                addToLog(`Fired at ${String.fromCharCode(65 + m.row)}-${m.col + 1} (${m.result.toUpperCase()})`, m.result, m.player_id);
+                addToLog(
+                    `Fired at ${String.fromCharCode(65 + Number(m.row))}-${Number(m.col) + 1} (${String(m.result).toUpperCase()})`,
+                    m.result,
+                    m.player_id
+                );
             }
         });
         lastMoveCount = moves.length;
@@ -357,6 +390,7 @@ async function renderActiveBoards(gameData) {
     const hitsEl = document.getElementById('liveHits');
     const missesEl = document.getElementById('liveMisses');
     const accuracyEl = document.getElementById('liveAccuracy');
+
     if (hitsEl) hitsEl.textContent = hits;
     if (missesEl) missesEl.textContent = misses;
     if (accuracyEl) accuracyEl.textContent = `${accuracy}%`;
@@ -371,10 +405,31 @@ function renderGrid(containerId, moves, isPlayer, idPrefix) {
 
     const size = getBoardSize();
     const shotMap = new Map();
+
     moves.forEach(m => {
-        const key = `${m.row},${m.col}`;
-        if (isPlayer && Number(m.player_id) !== Number(playerId)) shotMap.set(key, m.result);
-        if (!isPlayer && Number(m.player_id) === Number(playerId)) shotMap.set(key, m.result);
+        const row = Number(m.row);
+        const col = Number(m.col);
+        const key = `${row},${col}`;
+
+        if (m.target_player_id !== undefined && m.target_player_id !== null) {
+            if (isPlayer && Number(m.target_player_id) === Number(playerId)) {
+                shotMap.set(key, m.result);
+            }
+
+            if (!isPlayer && Number(m.player_id) === Number(playerId)) {
+                shotMap.set(key, m.result);
+            }
+        } else {
+            if (isPlayer) {
+                if (Number(m.player_id) !== Number(playerId)) {
+                    shotMap.set(key, m.result);
+                }
+            } else {
+                if (Number(m.player_id) === Number(playerId)) {
+                    shotMap.set(key, m.result);
+                }
+            }
+        }
     });
 
     board.innerHTML = "";
@@ -409,7 +464,12 @@ function renderGrid(containerId, moves, isPlayer, idPrefix) {
             cell.className = "cell";
             cell.id = `${idPrefix}-${r}-${c}`;
 
-            if (isPlayer && selectedShips.some(s => s.row === r && s.col === c)) {
+            const myShipCells = placedShips.flatMap(ship => ship.cells);
+
+            if (
+                isPlayer &&
+                myShipCells.some(s => Number(s.row) === r && Number(s.col) === c)
+            ) {
                 cell.classList.add("ship");
             }
 
@@ -445,26 +505,34 @@ window.addEventListener("load", async () => {
         const serverSelect = document.getElementById('serverSelect');
         if (serverSelect) serverSelect.value = currentBaseUrl;
     }
+
     if (savedPlayerId) playerId = Number(savedPlayerId);
     if (savedGridSize) currentGridSize = Number(savedGridSize) || DEFAULT_SIZE;
     if (savedShips) selectedShips = JSON.parse(savedShips);
     if (savedPlacedShips) placedShips = JSON.parse(savedPlacedShips);
     if (placedShips.length) currentPlacementIndex = placedShips.length;
+
     const savedDirection = localStorage.getItem('currentPlacementDirection');
-    if (savedDirection === 'horizontal' || savedDirection === 'vertical') currentPlacementDirection = savedDirection;
+    if (savedDirection === 'horizontal' || savedDirection === 'vertical') {
+        currentPlacementDirection = savedDirection;
+    }
+
     if (savedGameId) {
         gameId = Number(savedGameId);
         try {
             const gameData = await loadGameMeta(gameId);
+
             if (savedView === 'screen-placement') {
                 renderPlacementBoard();
                 const confirmBtn = document.getElementById('btnConfirmPlacement');
                 if (confirmBtn) confirmBtn.disabled = currentPlacementIndex !== SHIP_SEQUENCE.length;
             }
+
             if (savedView === 'screen-game' || savedView === 'screen-summary') {
                 startPolling();
                 await refreshGameState();
             }
+
             if (gameData.status === 'finished') {
                 navigateTo('screen-summary');
             }
@@ -473,6 +541,7 @@ window.addEventListener("load", async () => {
             clearSessionState();
         }
     }
+
     if (savedView && localStorage.getItem('currentServer')) navigateTo(savedView);
     else navigateTo('screen-server');
 
@@ -484,25 +553,37 @@ window.addEventListener("load", async () => {
 });
 
 // Navigation handlers
-document.getElementById('nav-disconnect').onclick = () => { clearSessionState(); location.reload(); };
-document.getElementById('nav-logout').onclick = () => { navigateTo('screen-login'); };
+document.getElementById('nav-disconnect').onclick = () => {
+    clearSessionState();
+    location.reload();
+};
+
+document.getElementById('nav-logout').onclick = () => {
+    navigateTo('screen-login');
+};
+
 document.getElementById('nav-lobby').onclick = async () => {
     navigateTo('screen-lobby');
     if (gameId) {
-        try { await loadGameMeta(gameId); } catch {}
+        try {
+            await loadGameMeta(gameId);
+        } catch {}
     }
     refreshLobby();
 };
 
 async function ensurePlayer() {
     const name = document.getElementById("playerName").value || "Captain_Gabbie";
+
     const res = await fetch(`${currentBaseUrl}/api/players`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: name })
     });
+
     const data = await safeJson(res);
     playerId = (res.status === 409) ? Number(localStorage.getItem("currentPlayerId")) : data.player_id;
+
     localStorage.setItem("currentPlayerId", playerId);
     localStorage.setItem("persistentPlayerName", name);
     persistSession();
@@ -515,28 +596,44 @@ document.getElementById('btnConfirmPlacement').onclick = async () => {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ player_id: playerId, ships: selectedShips })
         });
+
         const data = await safeJson(res);
         if (!res.ok) throw new Error(data.message || "Deployment rejected.");
+
         persistSession();
         navigateTo('screen-game');
         startPolling();
         await refreshGameState();
-    } catch (err) { alert(err.message); }
+    } catch (err) {
+        alert(err.message);
+    }
 };
 
 async function refreshGameState() {
     if (!gameId || !playerId) return;
-    const gameData = await loadGameMeta(gameId);
-    if (gameData.status === "finished") showFinalSummary(gameData);
-    else updateTurnIndicator(gameData.current_turn_player_id);
-    renderActiveBoards(gameData);
+
+    try {
+        const gameData = await loadGameMeta(gameId);
+
+        if (gameData.status === "finished") {
+            showFinalSummary(gameData);
+        } else {
+            updateTurnIndicator(gameData.current_turn_player_id);
+        }
+
+        await renderActiveBoards(gameData);
+    } catch (err) {
+        console.error("Refresh failed:", err);
+    }
 }
 
 function showFinalSummary(gameData) {
     stopPolling();
     navigateTo('screen-summary');
+
     const isWin = Number(gameData.winner_id) === Number(playerId);
     const resEl = document.getElementById('missionResult');
+
     if (resEl) {
         resEl.textContent = isWin ? "MISSION ACCOMPLISHED" : "MISSION FAILURE";
         resEl.style.color = isWin ? "#2ecc71" : "#ff5c5c";
@@ -546,43 +643,68 @@ function showFinalSummary(gameData) {
 function updateTurnIndicator(turnId) {
     const ind = document.getElementById('turnIndicator');
     if (!ind) return;
+
     const myTurn = Number(turnId) === Number(playerId);
     ind.textContent = myTurn ? "YOUR TURN: FIRE WHEN READY" : "OPPONENT TURN: BRACING FOR IMPACT";
     ind.style.color = myTurn ? "#2ecc71" : "#ff5c5c";
 }
 
-function updatePlacementInstructions(msg) { document.getElementById('placementInstructions').textContent = msg; }
+function updatePlacementInstructions(msg) {
+    document.getElementById('placementInstructions').textContent = msg;
+}
 
 function addToLog(msg, type, actorId = null) {
     const entry = document.createElement("div");
     const name = actorId ? (playerMap[actorId] || "Unknown") : "System";
+
     entry.className = type === "hit" ? "hitTxt" : "missTxt";
     entry.innerHTML = `<span style="color:var(--muted)">[${new Date().toLocaleTimeString()}]</span> <strong style="color:var(--accent)">${name}:</strong> ${msg}`;
     logEl.prepend(entry);
 }
 
-function startPolling() { stopPolling(); pollHandle = setInterval(refreshGameState, 1500); }
-function stopPolling() { if (pollHandle) clearInterval(pollHandle); pollHandle = null; }
-async function safeJson(r) { const t = await r.text(); try { return JSON.parse(t); } catch { return {message: t}; } }
+function startPolling() {
+    stopPolling();
+    pollHandle = setInterval(refreshGameState, 1500);
+}
+
+function stopPolling() {
+    if (pollHandle) clearInterval(pollHandle);
+    pollHandle = null;
+}
+
+async function safeJson(r) {
+    const t = await r.text();
+    try {
+        return JSON.parse(t);
+    } catch {
+        return { message: t };
+    }
+}
 
 document.getElementById('btnResetPlacement').onclick = () => startPlacementMode();
+
 document.getElementById('btnRotatePlacement').onclick = () => {
     currentPlacementDirection = currentPlacementDirection === 'horizontal' ? 'vertical' : 'horizontal';
     persistSession();
     renderPlacementBoard();
 };
+
 document.getElementById('btnUndoPlacement').onclick = () => {
     if (!placedShips.length) return;
+
     placedShips.pop();
     selectedShips = placedShips.flatMap(ship => ship.cells.map(cell => ({ ...cell })));
     currentPlacementIndex = placedShips.length;
+
     const confirmBtn = document.getElementById('btnConfirmPlacement');
     if (confirmBtn) confirmBtn.disabled = currentPlacementIndex !== SHIP_SEQUENCE.length;
+
     if (currentPlacementIndex < SHIP_SEQUENCE.length) {
         updatePlacementInstructions(`Place your next ship (${SHIP_SEQUENCE[currentPlacementIndex]} squares)`);
     } else {
         updatePlacementInstructions('Fleet stationed. Ready for confirmation.');
     }
+
     persistSession();
     renderPlacementBoard();
 };
@@ -591,4 +713,8 @@ document.getElementById('btnReturnLobby').onclick = async () => {
     navigateTo('screen-lobby');
     refreshLobby();
 };
-document.getElementById('btnDisconnect').onclick = () => { clearSessionState(); location.reload(); };
+
+document.getElementById('btnDisconnect').onclick = () => {
+    clearSessionState();
+    location.reload();
+};

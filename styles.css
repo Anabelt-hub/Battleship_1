@@ -32,7 +32,9 @@ body.light-theme {
   --panelShadow: 0 4px 15px rgba(0, 0, 0, 0.1);
 }
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 
 body {
   margin: 0;
@@ -54,21 +56,40 @@ body {
   background: var(--card);
 }
 
-.brand { display: flex; gap: 14px; align-items: center; }
+.brand {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+}
+
 .badge {
-  width: 44px; height: 44px; border-radius: 14px;
-  display: grid; place-items: center;
-  background: linear-gradient(145deg, rgba(255,204,102,0.25), rgba(106,169,255,0.12));
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(145deg, rgba(255, 204, 102, 0.25), rgba(106, 169, 255, 0.12));
   border: 1px solid var(--border);
   box-shadow: var(--glow);
   font-weight: 900;
 }
 
-h1 { margin: 0; font-size: 18px; letter-spacing: 0.5px; }
-.subtitle { margin: 2px 0 0; color: var(--muted); font-size: 11px; }
+h1 {
+  margin: 0;
+  font-size: 18px;
+  letter-spacing: 0.5px;
+}
+
+.subtitle {
+  margin: 2px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
 
 /* View Management */
-.hidden { display: none !important; }
+.hidden {
+  display: none !important;
+}
 
 .screen {
   animation: fadeIn 0.4s ease;
@@ -76,8 +97,14 @@ h1 { margin: 0; font-size: 18px; letter-spacing: 0.5px; }
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* Layouts & Panels */
@@ -128,7 +155,7 @@ h1 { margin: 0; font-size: 18px; letter-spacing: 0.5px; }
   grid-template-rows: repeat(11, 28px);
   gap: 2px;
   padding: 5px;
-  background: rgba(0,0,0,0.2);
+  background: rgba(0, 0, 0, 0.2);
   border: 1px solid var(--border);
   border-radius: 8px;
   width: max-content;
@@ -140,13 +167,34 @@ h1 { margin: 0; font-size: 18px; letter-spacing: 0.5px; }
   height: 28px;
   border-radius: 4px;
   background: var(--cell);
-  border: 1px solid rgba(255,255,255,0.05);
+  border: 1px solid rgba(255, 255, 255, 0.05);
   cursor: pointer;
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s;
+  transition: background 0.2s, transform 0.2s, opacity 0.2s;
+  padding: 0;
+}
+
+.cell:hover:not(:disabled) {
+  background: var(--cellHover);
+}
+
+.cell:disabled {
+  cursor: default;
+  opacity: 1;
+}
+
+/* wrapper divs generated around cells */
+.board > div {
+  width: 28px;
+  height: 28px;
+}
+
+#placementBoard.board > div {
+  width: 32px;
+  height: 32px;
 }
 
 .side-panel-compact {
@@ -158,12 +206,26 @@ h1 { margin: 0; font-size: 18px; letter-spacing: 0.5px; }
 }
 
 /* Typography */
-h2 { font-size: 1.8rem; margin: 0; }
-h3 { font-size: 1.1rem; margin: 0; color: var(--accent); }
-p.hint { font-size: 1rem; margin: 0; color: var(--muted); }
+h2 {
+  font-size: 1.8rem;
+  margin: 0;
+}
+
+h3 {
+  font-size: 1.1rem;
+  margin: 0;
+  color: var(--accent);
+}
+
+p.hint {
+  font-size: 1rem;
+  margin: 0;
+  color: var(--muted);
+}
 
 /* Form Elements */
-input, select {
+input,
+select {
   padding: 10px;
   background: var(--cell);
   color: var(--text);
@@ -188,19 +250,67 @@ button:hover:not(:disabled) {
   transform: translateY(-1px);
 }
 
-.success { background: #2ecc71 !important; color: white !important; border: none !important; text-transform: uppercase; }
-.danger { background: #e74c3c !important; color: white !important; border: none !important; text-transform: uppercase; }
+.success {
+  background: #2ecc71 !important;
+  color: white !important;
+  border: none !important;
+  text-transform: uppercase;
+}
 
-/* Visual Feedback Fix */
-.cell.ship { background: var(--ship); opacity: 0.7; }
-.cell.hit { background-color: var(--hit) !important; color: white; }
-.cell.miss { background-color: var(--miss) !important; color: white; }
+.danger {
+  background: #e74c3c !important;
+  color: white !important;
+  border: none !important;
+  text-transform: uppercase;
+}
 
-.cell.hit::after { content: "×"; color: white; font-size: 18px; font-weight: bold; }
-.cell.miss::after { content: "•"; color: white; font-size: 20px; }
+/* Board state styling */
+.cell.ship {
+  background: var(--ship);
+  opacity: 0.75;
+}
 
-.cell.sunk { background: #333 !important; border-radius: 0; }
-.cell.sunk::after { content: "🚢"; font-size: 14px; }
+.cell.hit {
+  background-color: var(--hit) !important;
+  color: white;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.cell.miss {
+  background-color: var(--miss) !important;
+  color: white;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.cell.hit::after {
+  content: "×";
+  color: white;
+  font-size: 18px;
+  font-weight: bold;
+  line-height: 1;
+}
+
+.cell.miss::after {
+  content: "•";
+  color: white;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.cell.ship.hit {
+  background-color: var(--hit) !important;
+  opacity: 1;
+}
+
+.cell.sunk {
+  background: #333 !important;
+  border-radius: 0;
+}
+
+.cell.sunk::after {
+  content: "🚢";
+  font-size: 14px;
+}
 
 /* Logs & Stats */
 .small-log {
@@ -208,15 +318,22 @@ button:hover:not(:disabled) {
   overflow-y: auto;
   width: 100%;
   font-size: 11px;
-  background: rgba(4,6,14,0.55);
+  background: rgba(4, 6, 14, 0.55);
   padding: 8px;
   border-radius: 8px;
   border: 1px solid var(--border);
   text-align: left;
 }
 
-.hitTxt { color: var(--hit) !important; font-weight: bold; }
-.missTxt { color: var(--miss) !important; font-weight: bold; }
+.hitTxt {
+  color: var(--hit) !important;
+  font-weight: bold;
+}
+
+.missTxt {
+  color: var(--miss) !important;
+  font-weight: bold;
+}
 
 /* Lobby List */
 .scroll-list {
@@ -250,16 +367,16 @@ button:hover:not(:disabled) {
 
 /* Fix Screen 4 Placement Grid */
 #placementBoard.board {
-    display: grid;
-    grid-template-columns: repeat(11, 32px); /* 10 cells + 1 for labels */
-    grid-template-rows: repeat(11, 32px);
-    gap: 4px;
-    width: max-content;
-    margin: 0 auto;
+  display: grid;
+  grid-template-columns: repeat(11, 32px);
+  grid-template-rows: repeat(11, 32px);
+  gap: 4px;
+  width: max-content;
+  margin: 0 auto;
 }
 
-
-.grid-label, .grid-corner {
+.grid-label,
+.grid-corner {
   width: 28px;
   height: 28px;
   display: flex;

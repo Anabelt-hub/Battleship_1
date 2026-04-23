@@ -8,7 +8,9 @@ let playerId = null;
 let gameStatus = "waiting_setup";
 let isPlacementMode = false;
 let selectedShips = [];
+let placedShips = [];
 let currentPlacementIndex = 0;
+let currentPlacementDirection = "horizontal";
 let pollHandle = null;
 let lastMoveCount = 0;
 let playerMap = {};
@@ -29,15 +31,20 @@ function persistSession() {
     localStorage.setItem('currentPlayerId', playerId ? String(playerId) : '');
     localStorage.setItem('currentGridSize', String(getBoardSize()));
     localStorage.setItem('persistentShips', JSON.stringify(selectedShips || []));
+    localStorage.setItem('persistentPlacedShips', JSON.stringify(placedShips || []));
+    localStorage.setItem('currentPlacementDirection', currentPlacementDirection || 'horizontal');
 }
 
+
 function clearSessionState() {
-    ['currentServer','currentView','currentGameId','currentPlayerId','currentGridSize','persistentShips'].forEach(k => localStorage.removeItem(k));
+    ['currentServer','currentView','currentGameId','currentPlayerId','currentGridSize','persistentShips','persistentPlacedShips','currentPlacementDirection'].forEach(k => localStorage.removeItem(k));
     gameId = null;
     playerId = null;
     currentGridSize = DEFAULT_SIZE;
     selectedShips = [];
+    placedShips = [];
     currentPlacementIndex = 0;
+    currentPlacementDirection = 'horizontal';
     lastMoveCount = 0;
     playerMap = {};
     stopPolling();
@@ -187,7 +194,9 @@ async function joinGameById(id) {
 function startPlacementMode() {
     isPlacementMode = true;
     selectedShips = [];
+    placedShips = [];
     currentPlacementIndex = 0;
+    currentPlacementDirection = 'horizontal';
     lastMoveCount = 0;
     navigateTo('screen-placement');
     updatePlacementInstructions(`Place your Carrier (5 squares) on the ${getBoardSize()}x${getBoardSize()} grid`);
@@ -196,17 +205,50 @@ function startPlacementMode() {
     renderPlacementBoard();
 }
 
+function getShipCells(startRow, startCol, length, direction) {
+    const cells = [];
+    for (let i = 0; i < length; i++) {
+        cells.push({
+            row: direction === "vertical" ? startRow + i : startRow,
+            col: direction === "horizontal" ? startCol + i : startCol
+        });
+    }
+    return cells;
+}
+
+function canPlaceShip(cells) {
+    const size = getBoardSize();
+    return cells.every(cell => (
+        cell.row >= 0 &&
+        cell.row < size &&
+        cell.col >= 0 &&
+        cell.col < size &&
+        !selectedShips.some(s => s.row === cell.row && s.col === cell.col)
+    ));
+}
+
+function syncPlacementControls() {
+    const dirBtn = document.getElementById('btnRotatePlacement');
+    const dirLabel = document.getElementById('placementDirectionLabel');
+    const directionText = currentPlacementDirection === 'horizontal' ? 'Horizontal' : 'Vertical';
+    if (dirBtn) dirBtn.textContent = `Direction: ${directionText}`;
+    if (dirLabel) dirLabel.textContent = `Current direction: ${directionText}`;
+}
+
 function renderPlacementBoard() {
     const board = document.getElementById("placementBoard");
     if(!board) return;
     const size = getBoardSize();
     board.innerHTML = "";
     board.style.gridTemplateColumns = `repeat(${size + 1}, 32px)`;
+    syncPlacementControls();
 
     for (let r = -1; r < size; r++) {
         for (let c = -1; c < size; c++) {
             const cell = document.createElement("div");
-            if (r === -1 && c === -1) {}
+            if (r === -1 && c === -1) {
+                cell.className = "grid-corner";
+            }
             else if (r === -1) { cell.textContent = c + 1; cell.className = "grid-label"; }
             else if (c === -1) { cell.textContent = String.fromCharCode(65 + r); cell.className = "grid-label"; }
             else {
@@ -222,19 +264,31 @@ function renderPlacementBoard() {
 }
 
 function handlePlacementClick(row, col) {
-    if (!isPlacementMode || selectedShips.some(s => s.row === row && s.col === col)) return;
-    selectedShips.push({ row, col });
+    if (!isPlacementMode || currentPlacementIndex >= SHIP_SEQUENCE.length) return;
+
+    const shipLength = SHIP_SEQUENCE[currentPlacementIndex];
+    const shipCells = getShipCells(row, col, shipLength, currentPlacementDirection);
+
+    if (!canPlaceShip(shipCells)) {
+        updatePlacementInstructions(`That ${shipLength}-square ship does not fit there. Try another starting cell or rotate it.`);
+        return;
+    }
+
+    placedShips.push({
+        length: shipLength,
+        direction: currentPlacementDirection,
+        cells: shipCells
+    });
+    selectedShips = placedShips.flatMap(ship => ship.cells.map(cell => ({ ...cell })));
+    currentPlacementIndex++;
     persistSession();
-    const currentGoal = SHIP_SEQUENCE.slice(0, currentPlacementIndex + 1).reduce((a, b) => a + b, 0);
-    if (selectedShips.length === currentGoal) {
-        currentPlacementIndex++;
-        if (currentPlacementIndex < SHIP_SEQUENCE.length) {
-            updatePlacementInstructions(`Place your next ship (${SHIP_SEQUENCE[currentPlacementIndex]} squares)`);
-        } else {
-            updatePlacementInstructions("Fleet stationed. Ready for confirmation.");
-            const confirmBtn = document.getElementById('btnConfirmPlacement');
-            if (confirmBtn) confirmBtn.disabled = false;
-        }
+
+    if (currentPlacementIndex < SHIP_SEQUENCE.length) {
+        updatePlacementInstructions(`Place your next ship (${SHIP_SEQUENCE[currentPlacementIndex]} squares)`);
+    } else {
+        updatePlacementInstructions("Fleet stationed. Ready for confirmation.");
+        const confirmBtn = document.getElementById('btnConfirmPlacement');
+        if (confirmBtn) confirmBtn.disabled = false;
     }
     renderPlacementBoard();
 }
@@ -314,12 +368,8 @@ async function renderActiveBoards(gameData) {
 function renderGrid(containerId, moves, isPlayer, idPrefix) {
     const board = document.getElementById(containerId);
     if (!board) return;
-    
-    // We only want to fully clear the board if it's currently empty 
-    // or if we are positive the server data has caught up.
+
     const size = getBoardSize();
-    
-    // Create a Map of the moves for quick lookup
     const shotMap = new Map();
     moves.forEach(m => {
         const key = `${m.row},${m.col}`;
@@ -327,54 +377,54 @@ function renderGrid(containerId, moves, isPlayer, idPrefix) {
         if (!isPlayer && Number(m.player_id) === Number(playerId)) shotMap.set(key, m.result);
     });
 
-    // Instead of innerHTML = "", we only update cells that don't have a 'pending' lock
-    if (board.children.length === 0) {
-        board.innerHTML = "";
-        board.style.gridTemplateColumns = `repeat(${size + 1}, 28px)`;
-    }
+    board.innerHTML = "";
+    board.style.gridTemplateColumns = `repeat(${size + 1}, 28px)`;
 
     for (let r = -1; r < size; r++) {
         for (let c = -1; c < size; c++) {
-            const key = `${r},${c}`;
-            let cell = document.getElementById(`${idPrefix}-${r}-${c}`);
-            
-            // If the cell doesn't exist yet, create it
-            if (!cell) {
-                const wrapper = document.createElement("div");
-                if (r === -1 || c === -1) {
-                    wrapper.className = "grid-label";
-                    if (r === -1 && c !== -1) wrapper.textContent = c + 1;
-                    if (c === -1 && r !== -1) wrapper.textContent = String.fromCharCode(65 + r);
-                    board.appendChild(wrapper);
-                    continue;
-                } else {
-                    const btn = document.createElement("button");
-                    btn.className = "cell";
-                    btn.id = `${idPrefix}-${r}-${c}`;
-                    wrapper.appendChild(btn);
-                    board.appendChild(wrapper);
-                    cell = btn;
-                }
+            const wrapper = document.createElement("div");
+
+            if (r === -1 && c === -1) {
+                wrapper.className = 'grid-corner';
+                board.appendChild(wrapper);
+                continue;
             }
 
-            // --- THE FIX: DON'T OVERWRITE RECENT CLICKS ---
-            // If the cell is already marked as hit/miss, don't let the refresh wipe it
-            if (cell.classList.contains('hit') || cell.classList.contains('miss')) continue;
+            if (r === -1) {
+                wrapper.className = "grid-label";
+                wrapper.textContent = c + 1;
+                board.appendChild(wrapper);
+                continue;
+            }
 
-            // Apply ship styling for your own board
+            if (c === -1) {
+                wrapper.className = "grid-label";
+                wrapper.textContent = String.fromCharCode(65 + r);
+                board.appendChild(wrapper);
+                continue;
+            }
+
+            const cell = document.createElement("button");
+            const key = `${r},${c}`;
+            cell.className = "cell";
+            cell.id = `${idPrefix}-${r}-${c}`;
+
             if (isPlayer && selectedShips.some(s => s.row === r && s.col === c)) {
                 cell.classList.add("ship");
             }
 
-            // Apply shot results from the server data
             if (shotMap.has(key)) {
                 const status = shotMap.get(key);
                 cell.classList.add(status);
-                cell.style.backgroundColor = (status === 'hit') ? 'var(--hit)' : 'var(--miss)';
                 cell.disabled = true;
             } else if (!isPlayer) {
                 cell.onclick = () => firePhasers(r, c);
+            } else {
+                cell.disabled = true;
             }
+
+            wrapper.appendChild(cell);
+            board.appendChild(wrapper);
         }
     }
 }
@@ -385,6 +435,7 @@ window.addEventListener("load", async () => {
     const savedServer = localStorage.getItem('currentServer');
     const savedGameId = localStorage.getItem('currentGameId');
     const savedShips = localStorage.getItem('persistentShips');
+    const savedPlacedShips = localStorage.getItem('persistentPlacedShips');
     const savedPlayerId = localStorage.getItem('currentPlayerId');
     const savedGridSize = localStorage.getItem('currentGridSize');
 
@@ -397,11 +448,19 @@ window.addEventListener("load", async () => {
     if (savedPlayerId) playerId = Number(savedPlayerId);
     if (savedGridSize) currentGridSize = Number(savedGridSize) || DEFAULT_SIZE;
     if (savedShips) selectedShips = JSON.parse(savedShips);
+    if (savedPlacedShips) placedShips = JSON.parse(savedPlacedShips);
+    if (placedShips.length) currentPlacementIndex = placedShips.length;
+    const savedDirection = localStorage.getItem('currentPlacementDirection');
+    if (savedDirection === 'horizontal' || savedDirection === 'vertical') currentPlacementDirection = savedDirection;
     if (savedGameId) {
         gameId = Number(savedGameId);
         try {
             const gameData = await loadGameMeta(gameId);
-            if (savedView === 'screen-placement') renderPlacementBoard();
+            if (savedView === 'screen-placement') {
+                renderPlacementBoard();
+                const confirmBtn = document.getElementById('btnConfirmPlacement');
+                if (confirmBtn) confirmBtn.disabled = currentPlacementIndex !== SHIP_SEQUENCE.length;
+            }
             if (savedView === 'screen-game' || savedView === 'screen-summary') {
                 startPolling();
                 await refreshGameState();
@@ -507,6 +566,27 @@ function stopPolling() { if (pollHandle) clearInterval(pollHandle); pollHandle =
 async function safeJson(r) { const t = await r.text(); try { return JSON.parse(t); } catch { return {message: t}; } }
 
 document.getElementById('btnResetPlacement').onclick = () => startPlacementMode();
+document.getElementById('btnRotatePlacement').onclick = () => {
+    currentPlacementDirection = currentPlacementDirection === 'horizontal' ? 'vertical' : 'horizontal';
+    persistSession();
+    renderPlacementBoard();
+};
+document.getElementById('btnUndoPlacement').onclick = () => {
+    if (!placedShips.length) return;
+    placedShips.pop();
+    selectedShips = placedShips.flatMap(ship => ship.cells.map(cell => ({ ...cell })));
+    currentPlacementIndex = placedShips.length;
+    const confirmBtn = document.getElementById('btnConfirmPlacement');
+    if (confirmBtn) confirmBtn.disabled = currentPlacementIndex !== SHIP_SEQUENCE.length;
+    if (currentPlacementIndex < SHIP_SEQUENCE.length) {
+        updatePlacementInstructions(`Place your next ship (${SHIP_SEQUENCE[currentPlacementIndex]} squares)`);
+    } else {
+        updatePlacementInstructions('Fleet stationed. Ready for confirmation.');
+    }
+    persistSession();
+    renderPlacementBoard();
+};
+
 document.getElementById('btnReturnLobby').onclick = async () => {
     navigateTo('screen-lobby');
     refreshLobby();

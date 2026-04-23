@@ -104,9 +104,11 @@
       <div style="display: flex; gap: 20px; flex-wrap: wrap; justify-content: center;">
         <div id="placementBoard" class="board"></div>
         <div class="controls" style="display: flex; flex-direction: column; gap: 10px;">
+          <div id="placementDirectionLabel" class="hint">Current direction: Horizontal</div>
+          <button id="btnRotatePlacement">Direction: Horizontal</button>
           <button id="btnConfirmPlacement" class="success" disabled>Confirm Positions</button>
           <button id="btnResetPlacement" class="danger">Reset Fleet</button>
-          <button id="btnUndoPlacement">Undo Selection</button>
+          <button id="btnUndoPlacement">Undo Last Ship</button>
         </div>
       </div>
     </section>

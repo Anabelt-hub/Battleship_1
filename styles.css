@@ -68,7 +68,7 @@ body {
   border-radius: 14px;
   display: grid;
   place-items: center;
-  background: linear-gradient(145deg, rgba(255, 204, 102, 0.25), rgba(106, 169, 255, 0.12));
+  background: linear-gradient(145deg, rgba(255,204,102,0.25), rgba(106,169,255,0.12));
   border: 1px solid var(--border);
   box-shadow: var(--glow);
   font-weight: 900;
@@ -97,14 +97,8 @@ h1 {
 }
 
 @keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 /* Layouts & Panels */
@@ -155,7 +149,7 @@ h1 {
   grid-template-rows: repeat(11, 28px);
   gap: 2px;
   padding: 5px;
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(0,0,0,0.2);
   border: 1px solid var(--border);
   border-radius: 8px;
   width: max-content;
@@ -167,7 +161,7 @@ h1 {
   height: 28px;
   border-radius: 4px;
   background: var(--cell);
-  border: 1px solid rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255,255,255,0.05);
   cursor: pointer;
   position: relative;
   display: flex;
@@ -186,7 +180,6 @@ h1 {
   opacity: 1;
 }
 
-/* wrapper divs generated around cells */
 .board > div {
   width: 28px;
   height: 28px;
@@ -206,26 +199,12 @@ h1 {
 }
 
 /* Typography */
-h2 {
-  font-size: 1.8rem;
-  margin: 0;
-}
-
-h3 {
-  font-size: 1.1rem;
-  margin: 0;
-  color: var(--accent);
-}
-
-p.hint {
-  font-size: 1rem;
-  margin: 0;
-  color: var(--muted);
-}
+h2 { font-size: 1.8rem; margin: 0; }
+h3 { font-size: 1.1rem; margin: 0; color: var(--accent); }
+p.hint { font-size: 1rem; margin: 0; color: var(--muted); }
 
 /* Form Elements */
-input,
-select {
+input, select {
   padding: 10px;
   background: var(--cell);
   color: var(--text);
@@ -273,13 +252,13 @@ button:hover:not(:disabled) {
 .cell.hit {
   background-color: var(--hit) !important;
   color: white;
-  border-color: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255,255,255,0.2);
 }
 
 .cell.miss {
   background-color: var(--miss) !important;
   color: white;
-  border-color: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255,255,255,0.2);
 }
 
 .cell.hit::after {
@@ -318,7 +297,7 @@ button:hover:not(:disabled) {
   overflow-y: auto;
   width: 100%;
   font-size: 11px;
-  background: rgba(4, 6, 14, 0.55);
+  background: rgba(4,6,14,0.55);
   padding: 8px;
   border-radius: 8px;
   border: 1px solid var(--border);

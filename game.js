@@ -15,6 +15,7 @@ let pollHandle = null;
 let lastMoveCount = 0;
 let playerMap = {};
 let currentGridSize = DEFAULT_SIZE;
+let persistentShotMarks = {};
 
 // --- DOM ELEMENTS ---
 const statusEl = document.getElementById("status");
@@ -22,6 +23,31 @@ const logEl = document.getElementById("log");
 
 function getBoardSize() {
     return Number(currentGridSize) || DEFAULT_SIZE;
+}
+
+function getShotMarkKey(boardType, row, col) {
+    return `${boardType}:${Number(row)},${Number(col)}`;
+}
+
+function loadPersistentShotMarks() {
+    try {
+        persistentShotMarks = JSON.parse(localStorage.getItem("persistentShotMarks") || "{}");
+    } catch {
+        persistentShotMarks = {};
+    }
+}
+
+function savePersistentShotMarks() {
+    localStorage.setItem("persistentShotMarks", JSON.stringify(persistentShotMarks || {}));
+}
+
+function setPersistentShotMark(boardType, row, col, result) {
+    persistentShotMarks[getShotMarkKey(boardType, row, col)] = result;
+    savePersistentShotMarks();
+}
+
+function getPersistentShotMark(boardType, row, col) {
+    return persistentShotMarks[getShotMarkKey(boardType, row, col)] || null;
 }
 
 function persistSession() {
@@ -33,6 +59,7 @@ function persistSession() {
     localStorage.setItem('persistentShips', JSON.stringify(selectedShips || []));
     localStorage.setItem('persistentPlacedShips', JSON.stringify(placedShips || []));
     localStorage.setItem('currentPlacementDirection', currentPlacementDirection || 'horizontal');
+    localStorage.setItem('persistentShotMarks', JSON.stringify(persistentShotMarks || {}));
 }
 
 function clearSessionState() {
@@ -44,7 +71,8 @@ function clearSessionState() {
         'currentGridSize',
         'persistentShips',
         'persistentPlacedShips',
-        'currentPlacementDirection'
+        'currentPlacementDirection',
+        'persistentShotMarks'
     ].forEach(k => localStorage.removeItem(k));
 
     gameId = null;
@@ -56,6 +84,7 @@ function clearSessionState() {
     currentPlacementDirection = 'horizontal';
     lastMoveCount = 0;
     playerMap = {};
+    persistentShotMarks = {};
     stopPolling();
 }
 
@@ -329,7 +358,6 @@ function handlePlacementClick(row, col) {
 // --- SCREEN 5: THE BATTLE ---
 async function firePhasers(row, col) {
     const cell = document.getElementById(`enemy-cell-${row}-${col}`);
-
     if (!cell || cell.classList.contains('hit') || cell.classList.contains('miss') || cell.disabled) return;
 
     try {
@@ -347,6 +375,9 @@ async function firePhasers(row, col) {
         }
 
         const resultClass = data.result;
+
+        setPersistentShotMark("enemy", row, col, resultClass);
+
         cell.classList.add(resultClass);
         cell.disabled = true;
 
@@ -372,11 +403,14 @@ async function renderActiveBoards(gameData) {
     if (moves.length > lastMoveCount) {
         moves.slice(lastMoveCount).forEach(m => {
             if (Number(m.player_id) !== Number(playerId)) {
+                setPersistentShotMark("player", m.row, m.col, m.result);
                 addToLog(
                     `Fired at ${String.fromCharCode(65 + Number(m.row))}-${Number(m.col) + 1} (${String(m.result).toUpperCase()})`,
                     m.result,
                     m.player_id
                 );
+            } else {
+                setPersistentShotMark("enemy", m.row, m.col, m.result);
             }
         });
         lastMoveCount = moves.length;
@@ -431,6 +465,15 @@ function renderGrid(containerId, moves, isPlayer, idPrefix) {
             }
         }
     });
+
+    for (let r = 0; r < size; r++) {
+        for (let c = 0; c < size; c++) {
+            const localMark = getPersistentShotMark(isPlayer ? "player" : "enemy", r, c);
+            if (localMark) {
+                shotMap.set(`${r},${c}`, localMark);
+            }
+        }
+    }
 
     board.innerHTML = "";
     board.style.gridTemplateColumns = `repeat(${size + 1}, 28px)`;
@@ -511,6 +554,7 @@ window.addEventListener("load", async () => {
     if (savedShips) selectedShips = JSON.parse(savedShips);
     if (savedPlacedShips) placedShips = JSON.parse(savedPlacedShips);
     if (placedShips.length) currentPlacementIndex = placedShips.length;
+    loadPersistentShotMarks();
 
     const savedDirection = localStorage.getItem('currentPlacementDirection');
     if (savedDirection === 'horizontal' || savedDirection === 'vertical') {

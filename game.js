@@ -94,9 +94,12 @@ async function loadGameMeta(id) {
     if (!res.ok) throw new Error(data.message || 'Unable to load game');
 
     // Update the UI with the active Game ID
-    const idDisplay = document.getElementById('displayGameId');
-    if (idDisplay) idDisplay.textContent = `#${id}`;
-
+    // Inside loadGameMeta(id)
+    const idPlacement = document.getElementById('displayGameId');
+    const idGame = document.getElementById('displayGameIdGame');
+    if (idPlacement) idPlacement.textContent = `#${id}`;
+    if (idGame) idGame.textContent = `#${id}`;
+    
     currentGridSize = Number(data.grid_size) || DEFAULT_SIZE;
 
     if (Array.isArray(data.players)) {

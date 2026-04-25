@@ -190,7 +190,8 @@ if (preg_match("#^api/games/(\d+)/moves$#", $path, $m) && $method === "GET") {
     $s->execute([$gameId]);
     if (!$s->fetch()) send_error("not_found", "Game not found", 404);
 
-    $s = $pdo->prepare("SELECT move_id, game_id, player_id, row, col, result, fired_at FROM moves WHERE game_id=? ORDER BY move_id ASC");
+    // REMOVE 'fired_at' FROM THE LINE BELOW
+    $s = $pdo->prepare("SELECT move_id, game_id, player_id, row, col, result FROM moves WHERE game_id=? ORDER BY move_id ASC");
     $s->execute([$gameId]);
     send_json(["moves" => $s->fetchAll()]);
 }

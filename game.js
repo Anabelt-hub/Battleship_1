@@ -93,6 +93,10 @@ async function loadGameMeta(id) {
     const data = await safeJson(res);
     if (!res.ok) throw new Error(data.message || 'Unable to load game');
 
+    // Update the UI with the active Game ID
+    const idDisplay = document.getElementById('displayGameId');
+    if (idDisplay) idDisplay.textContent = `#${id}`;
+
     currentGridSize = Number(data.grid_size) || DEFAULT_SIZE;
 
     if (Array.isArray(data.players)) {
@@ -209,7 +213,7 @@ async function refreshLobby() {
             <div class="game-item">
                 <span>Room #${g.game_id} (${g.status}) · ${g.grid_size}x${g.grid_size} · ${g.max_players} players</span>
                 ${g.status !== 'finished'
-                    ? `<button class="success" onclick="ById(${g.game_id})">Join</button>`
+                    ? `<button class="success" onclick="joinGameById(${g.game_id})">Join</button>`
                     : '<span class="muted">Closed</span>'}
             </div>
         `).join('') || '<p class="hint">No active signals found.</p>';
@@ -668,18 +672,48 @@ async function refreshGameState() {
     }
 }
 
-function showFinalSummary(gameData) {
+async function showFinalSummary(gameData) {
     stopPolling();
     navigateTo('screen-summary');
 
+    // 1. Set Win/Loss Text
     const isWin = Number(gameData.winner_id) === Number(playerId);
     const resEl = document.getElementById('missionResult');
-
     if (resEl) {
         resEl.textContent = isWin ? "MISSION ACCOMPLISHED" : "MISSION FAILURE";
         resEl.style.color = isWin ? "#2ecc71" : "#ff5c5c";
     }
+
+    // 2. Fetch Lifetime Stats from API
+    try {
+        const statsRes = await fetch(`${currentBaseUrl}/api/players/${playerId}/stats`);
+        const stats = await safeJson(statsRes);
+        const statsBox = document.getElementById('playerLifetimeStats');
+        if (statsBox) {
+            statsBox.innerHTML = `
+                <h3>Captain's Record</h3>
+                <p>Wins: ${stats.wins} | Losses: ${stats.losses}</p>
+                <p>Career Accuracy: ${(stats.accuracy * 100).toFixed(1)}%</p>
+            `;
+        }
+    } catch (err) { console.error("Stats fetch failed", err); }
+
+    // 3. Move the game boards, stats, and log to the summary view
+    const summaryBoards = document.getElementById('summaryBoards');
+    const battleArena = document.querySelector('.battle-arena');
+    if (summaryBoards && battleArena) {
+        summaryBoards.appendChild(battleArena); // This moves the boards and log automatically!
+    }
 }
+
+document.getElementById('nav-logout-summary').onclick = () => {
+    clearSessionState();
+    navigateTo('screen-login');
+};
+document.getElementById('btnDisconnectSummary').onclick = () => {
+    clearSessionState();
+    location.reload();
+};
 
 function updateTurnIndicator(turnId) {
     const ind = document.getElementById('turnIndicator');

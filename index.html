@@ -117,7 +117,7 @@
     <section id="screen-game" class="screen hidden">
       <div style="text-align: center; margin-bottom: 10px;">
         <h2 id="turnIndicator" style="font-size: 1.5rem;">TACTICAL ENGAGEMENT</h2>
-        <p class="hint">Mission ID: <span id="displayGameId" style="color: var(--accent); font-weight: bold;">---</span></p>
+        <p class="hint">Mission ID: <span id="displayGameIdGame" style="color: var(--accent); font-weight: bold;">---</span></p>
       </div>
       
       <div class="battle-arena">
@@ -150,13 +150,15 @@
     </section>
 
     <section id="screen-summary" class="screen panel hidden">
-      <h1 id="missionResult" style="text-align: center; font-size: 3rem; margin: 0;"></h1>
-      <div id="summaryContent" style="display: flex; flex-wrap: wrap; gap: 20px; justify-content: center; margin-top: 20px;">
-      </div>
-      <div style="display: flex; justify-content: center; gap: 20px; margin-top: 30px;">
-        <button id="btnReturnLobby" class="success">New Mission</button>
-        <button id="btnDisconnect" class="danger">Disconnect Server</button>
-      </div>
+        <h1 id="missionResult" style="text-align: center; font-size: 3rem; margin: 0;"></h1>
+    
+        <div id="summaryContent" style="display: flex; flex-direction: column; gap: 20px; align-items: center; margin-top: 20px;">
+            <div id="summaryBoards" class="battle-arena"></div> <div id="playerLifetimeStats" class="panel stats-panel" style="max-width: 400px;"></div> </div>
+
+        <div style="display: flex; justify-content: center; gap: 20px; margin-top: 30px;">
+            <button id="btnReturnLobby" class="success">New Mission</button>
+            <button id="nav-logout-summary" class="button">Logout</button> <button id="btnDisconnectSummary" class="danger">Disconnect Server</button>
+        </div>
     </section>
 
   </main>

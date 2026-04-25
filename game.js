@@ -209,7 +209,7 @@ async function refreshLobby() {
             <div class="game-item">
                 <span>Room #${g.game_id} (${g.status}) · ${g.grid_size}x${g.grid_size} · ${g.max_players} players</span>
                 ${g.status !== 'finished'
-                    ? `<button class="success" onclick="joinGameById(${g.game_id})">Join</button>`
+                    ? `<button class="success" onclick="ById(${g.game_id})">Join</button>`
                     : '<span class="muted">Closed</span>'}
             </div>
         `).join('') || '<p class="hint">No active signals found.</p>';
@@ -230,7 +230,14 @@ async function joinGameById(id) {
         const data = await safeJson(res);
         if (!res.ok) throw new Error(data.message || 'Join failed');
 
+        // --- THE FIX: WIPE OLD DATA ON JOIN ---
         gameId = id;
+        lastMoveCount = 0; // Reset log counter for the new room
+        persistentShotMarks = {}; // Clear old hits/misses
+        localStorage.removeItem('persistentShotMarks'); // Wipe from storage
+        if (logEl) logEl.innerHTML = ""; // Clear the physical log panel
+        // ---------------------------------------------------
+
         await loadGameMeta(gameId);
         startPlacementMode();
     } catch (err) {
@@ -380,12 +387,6 @@ async function firePhasers(row, col) {
 
         cell.classList.add(resultClass);
         cell.disabled = true;
-
-        addToLog(
-            `Fired at ${String.fromCharCode(65 + row)}-${col + 1} (${String(data.result).toUpperCase()})`,
-            data.result,
-            playerId
-        );
 
         setTimeout(() => {
             refreshGameState();

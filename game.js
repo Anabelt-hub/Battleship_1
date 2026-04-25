@@ -400,18 +400,21 @@ async function renderActiveBoards(gameData) {
     const movesData = await safeJson(movesRes);
     const moves = movesData.moves || [];
 
+    // FIX: Rebuild log if it was cleared by a refresh
+    if (logEl && logEl.innerHTML === "" && moves.length > 0) {
+        lastMoveCount = 0; // Reset counter to force re-logging of all historical moves
+    }
+
     if (moves.length > lastMoveCount) {
         moves.slice(lastMoveCount).forEach(m => {
-            if (Number(m.player_id) !== Number(playerId)) {
-                setPersistentShotMark("player", m.row, m.col, m.result);
-                addToLog(
-                    `Fired at ${String.fromCharCode(65 + Number(m.row))}-${Number(m.col) + 1} (${String(m.result).toUpperCase()})`,
-                    m.result,
-                    m.player_id
-                );
-            } else {
-                setPersistentShotMark("enemy", m.row, m.col, m.result);
-            }
+            // Log EVERYONE'S shots (You and the Opponent)
+            setPersistentShotMark(Number(m.player_id) === Number(playerId) ? "enemy" : "player", m.row, m.col, m.result);
+            
+            addToLog(
+                `Fired at ${String.fromCharCode(65 + Number(m.row))}-${Number(m.col) + 1} (${String(m.result).toUpperCase()})`,
+                m.result,
+                m.player_id
+            );
         });
         lastMoveCount = moves.length;
     }
@@ -444,24 +447,17 @@ function renderGrid(containerId, moves, isPlayer, idPrefix) {
         const row = Number(m.row);
         const col = Number(m.col);
         const key = `${row},${col}`;
+        const moverId = Number(m.player_id);
 
-        if (m.target_player_id !== undefined && m.target_player_id !== null) {
-            if (isPlayer && Number(m.target_player_id) === Number(playerId)) {
-                shotMap.set(key, m.result);
-            }
-
-            if (!isPlayer && Number(m.player_id) === Number(playerId)) {
+        if (isPlayer) {
+            // On YOUR board, show moves where the mover was NOT you
+            if (moverId !== Number(playerId)) {
                 shotMap.set(key, m.result);
             }
         } else {
-            if (isPlayer) {
-                if (Number(m.player_id) !== Number(playerId)) {
-                    shotMap.set(key, m.result);
-                }
-            } else {
-                if (Number(m.player_id) === Number(playerId)) {
-                    shotMap.set(key, m.result);
-                }
+            // On ENEMY board, show moves where the mover WAS you
+            if (moverId === Number(playerId)) {
+                shotMap.set(key, m.result);
             }
         }
     });
@@ -754,6 +750,22 @@ document.getElementById('btnUndoPlacement').onclick = () => {
 };
 
 document.getElementById('btnReturnLobby').onclick = async () => {
+    // 1. Clear game-specific tactical data but KEEP the player's identity
+    gameId = null;
+    lastMoveCount = 0;
+    selectedShips = [];
+    placedShips = [];
+    persistentShotMarks = {}; // Clear the hits/misses from the previous session
+    
+    // 2. Remove game-specific items from storage so they don't reload on refresh
+    localStorage.removeItem('currentGameId');
+    localStorage.removeItem('persistentShips');
+    localStorage.removeItem('persistentPlacedShips');
+    localStorage.removeItem('persistentShotMarks');
+
+    // 3. Reset the UI log for the next mission
+    if (logEl) logEl.innerHTML = "";
+    
     navigateTo('screen-lobby');
     refreshLobby();
 };

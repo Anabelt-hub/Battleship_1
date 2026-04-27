@@ -1,6 +1,7 @@
 // --- CONFIGURATION & STATE ---
 const DEFAULT_SIZE = 10;
 const SHIP_SEQUENCE = [5, 4, 3];
+
 let currentBaseUrl = "https://battleship-1-qpm6.onrender.com";
 
 let gameId = null;
@@ -21,6 +22,19 @@ let persistentShotMarks = {};
 const statusEl = document.getElementById("status");
 const logEl = document.getElementById("log");
 
+// --- SERVER-SPECIFIC STORAGE FIX ---
+function normalizeBaseUrl(url) {
+    return String(url || "").replace(/\/+$/, "");
+}
+
+function serverKey(name) {
+    return `${name}:${normalizeBaseUrl(currentBaseUrl)}`;
+}
+
+function setStatus(msg) {
+    if (statusEl) statusEl.textContent = msg;
+}
+
 function getBoardSize() {
     return Number(currentGridSize) || DEFAULT_SIZE;
 }
@@ -31,14 +45,14 @@ function getShotMarkKey(boardType, row, col) {
 
 function loadPersistentShotMarks() {
     try {
-        persistentShotMarks = JSON.parse(localStorage.getItem("persistentShotMarks") || "{}");
+        persistentShotMarks = JSON.parse(localStorage.getItem(serverKey("persistentShotMarks")) || "{}");
     } catch {
         persistentShotMarks = {};
     }
 }
 
 function savePersistentShotMarks() {
-    localStorage.setItem("persistentShotMarks", JSON.stringify(persistentShotMarks || {}));
+    localStorage.setItem(serverKey("persistentShotMarks"), JSON.stringify(persistentShotMarks || {}));
 }
 
 function setPersistentShotMark(boardType, row, col, result) {
@@ -51,131 +65,176 @@ function getPersistentShotMark(boardType, row, col) {
 }
 
 function persistSession() {
-    localStorage.setItem('currentServer', currentBaseUrl || '');
-    localStorage.setItem('currentView', document.querySelector('.screen:not(.hidden)')?.id || 'screen-server');
-    localStorage.setItem('currentGameId', gameId ? String(gameId) : '');
-    localStorage.setItem('currentPlayerId', playerId ? String(playerId) : '');
-    localStorage.setItem('currentGridSize', String(getBoardSize()));
-    localStorage.setItem('persistentShips', JSON.stringify(selectedShips || []));
-    localStorage.setItem('persistentPlacedShips', JSON.stringify(placedShips || []));
-    localStorage.setItem('currentPlacementDirection', currentPlacementDirection || 'horizontal');
-    localStorage.setItem('persistentShotMarks', JSON.stringify(persistentShotMarks || {}));
+    localStorage.setItem("currentServer", normalizeBaseUrl(currentBaseUrl));
+    localStorage.setItem(serverKey("currentView"), document.querySelector(".screen:not(.hidden)")?.id || "screen-server");
+    localStorage.setItem(serverKey("currentGameId"), gameId ? String(gameId) : "");
+    localStorage.setItem(serverKey("currentPlayerId"), playerId ? String(playerId) : "");
+    localStorage.setItem(serverKey("currentGridSize"), String(getBoardSize()));
+    localStorage.setItem(serverKey("persistentShips"), JSON.stringify(selectedShips || []));
+    localStorage.setItem(serverKey("persistentPlacedShips"), JSON.stringify(placedShips || []));
+    localStorage.setItem(serverKey("currentPlacementDirection"), currentPlacementDirection || "horizontal");
+    savePersistentShotMarks();
 }
 
-function clearSessionState() {
-    [
-        'currentServer',
-        'currentView',
-        'currentGameId',
-        'currentPlayerId',
-        'currentGridSize',
-        'persistentShips',
-        'persistentPlacedShips',
-        'currentPlacementDirection',
-        'persistentShotMarks'
-    ].forEach(k => localStorage.removeItem(k));
+function clearGameSessionOnly() {
+    localStorage.removeItem(serverKey("currentView"));
+    localStorage.removeItem(serverKey("currentGameId"));
+    localStorage.removeItem(serverKey("currentGridSize"));
+    localStorage.removeItem(serverKey("persistentShips"));
+    localStorage.removeItem(serverKey("persistentPlacedShips"));
+    localStorage.removeItem(serverKey("currentPlacementDirection"));
+    localStorage.removeItem(serverKey("persistentShotMarks"));
 
     gameId = null;
-    playerId = null;
     currentGridSize = DEFAULT_SIZE;
     selectedShips = [];
     placedShips = [];
     currentPlacementIndex = 0;
-    currentPlacementDirection = 'horizontal';
+    currentPlacementDirection = "horizontal";
     lastMoveCount = 0;
     playerMap = {};
     persistentShotMarks = {};
     stopPolling();
+
+    if (logEl) logEl.innerHTML = "";
 }
 
-async function loadGameMeta(id) {
-    const res = await fetch(`${currentBaseUrl}/api/games/${id}?t=${Date.now()}`);
-    const data = await safeJson(res);
-    if (!res.ok) throw new Error(data.message || 'Unable to load game');
-
-    // Update the UI with the active Game ID
-    // Inside loadGameMeta(id)
-    const idPlacement = document.getElementById('displayGameId');
-    const idGame = document.getElementById('displayGameIdGame');
-    if (idPlacement) idPlacement.textContent = `#${id}`;
-    if (idGame) idGame.textContent = `#${id}`;
-    
-    currentGridSize = Number(data.grid_size) || DEFAULT_SIZE;
-
-    if (Array.isArray(data.players)) {
-        data.players.forEach(p => {
-            playerMap[p.player_id] =
-                p.username || (Number(p.player_id) === Number(playerId) ? 'You' : `Player ${p.player_id}`);
-        });
-    }
-
-    persistSession();
-    return data;
+function clearSessionState() {
+    clearGameSessionOnly();
+    playerId = null;
+    localStorage.removeItem(serverKey("currentPlayerId"));
 }
 
-// --- VIEW MANAGEMENT & PERSISTENCE ---
+// --- VIEW MANAGEMENT ---
 function navigateTo(screenId) {
-    document.querySelectorAll('.screen').forEach(s => s.classList.add('hidden'));
+    document.querySelectorAll(".screen").forEach(s => s.classList.add("hidden"));
     const target = document.getElementById(screenId);
-    if (target) target.classList.remove('hidden');
+    if (target) target.classList.remove("hidden");
     updateNavButtons(screenId);
     persistSession();
 }
 
 function updateNavButtons(view) {
-    const dsc = document.getElementById('nav-disconnect');
-    const lgo = document.getElementById('nav-logout');
-    const lby = document.getElementById('nav-lobby');
+    const dsc = document.getElementById("nav-disconnect");
+    const lgo = document.getElementById("nav-logout");
+    const lby = document.getElementById("nav-lobby");
 
-    if (dsc) dsc.classList.toggle('hidden', view === 'screen-server');
-    if (lgo) lgo.classList.toggle('hidden', view === 'screen-server' || view === 'screen-login');
-    if (lby) lby.classList.toggle('hidden', view === 'screen-server' || view === 'screen-login' || view === 'screen-lobby');
+    if (dsc) dsc.classList.toggle("hidden", view === "screen-server");
+    if (lgo) lgo.classList.toggle("hidden", view === "screen-server" || view === "screen-login");
+    if (lby) lby.classList.toggle("hidden", view === "screen-server" || view === "screen-login" || view === "screen-lobby");
 }
 
-// --- SCREEN 1: SERVER SELECTION ---
-document.getElementById('themeToggle').onclick = () => {
-    document.body.classList.toggle('light-theme');
+async function safeJson(r) {
+    const t = await r.text();
+    try {
+        return JSON.parse(t);
+    } catch {
+        return { message: t };
+    }
+}
+
+// --- SERVER SELECTION ---
+document.getElementById("themeToggle").onclick = () => {
+    document.body.classList.toggle("light-theme");
 };
 
-document.getElementById('btnConnectServer').onclick = async () => {
-    currentBaseUrl = document.getElementById('serverSelect').value;
-    document.getElementById('activeServerUrl').textContent = `Connected: ${currentBaseUrl}`;
+document.getElementById("btnConnectServer").onclick = async () => {
+    const selectedUrl = normalizeBaseUrl(document.getElementById("serverSelect").value);
+    currentBaseUrl = selectedUrl;
+
+    document.getElementById("activeServerUrl").textContent = `Connected: ${currentBaseUrl}`;
+
+    // important: do not reuse game/player state across servers
+    gameId = null;
+    playerId = Number(localStorage.getItem(serverKey("currentPlayerId"))) || null;
+    clearGameSessionOnly();
 
     try {
         const res = await fetch(`${currentBaseUrl}/api/health`);
+
         if (res.ok) {
-            navigateTo('screen-login');
+            setStatus("Connected. Please log in for this server.");
+            navigateTo("screen-login");
         } else {
             alert("Uplink failed: Server rejected request.");
         }
     } catch (err) {
+        console.error("Server connection failed:", err);
         alert("Network Error: Could not reach server.");
     }
 };
 
-// --- SCREEN 2: LOGIN ---
-document.getElementById('btnLogin').onclick = async () => {
+// --- LOGIN ---
+document.getElementById("btnLogin").onclick = async () => {
     try {
         await ensurePlayer();
-        navigateTo('screen-lobby');
+        navigateTo("screen-lobby");
         await refreshLobby();
     } catch (err) {
+        console.error("Login failed:", err);
         alert(`Login failed: ${err.message}`);
     }
 };
 
-// --- SCREEN 3: LOBBY ---
+async function ensurePlayer() {
+    const input = document.getElementById("playerName");
+    let name = input?.value?.trim() || "Captain_Gabbie";
+
+    // Keep names backend-safe
+    name = name.replace(/[^a-zA-Z0-9_]/g, "_").slice(0, 24);
+    if (!name) name = "Captain";
+
+    localStorage.setItem("persistentPlayerName", name);
+
+    const savedForThisServer = localStorage.getItem(serverKey("currentPlayerId"));
+    if (savedForThisServer && !playerId) {
+        playerId = Number(savedForThisServer);
+    }
+
+    // Try normal username first, then retry with unique suffix if username exists
+    for (let attempt = 0; attempt < 3; attempt++) {
+        const username = attempt === 0 ? name : `${name}_${Math.floor(Math.random() * 9000 + 1000)}`;
+
+        const res = await fetch(`${currentBaseUrl}/api/players`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username })
+        });
+
+        const data = await safeJson(res);
+
+        if (res.ok && data.player_id) {
+            playerId = Number(data.player_id);
+            localStorage.setItem(serverKey("currentPlayerId"), String(playerId));
+            localStorage.setItem("persistentPlayerName", username);
+            if (input) input.value = username;
+            persistSession();
+            setStatus(`Logged in as ${username} on this server.`);
+            return playerId;
+        }
+
+        if (res.status !== 409) {
+            throw new Error(data.message || "Could not create player on this server.");
+        }
+    }
+
+    throw new Error("Username already exists on this server. Try a different name.");
+}
+
+// --- LOBBY ---
 setInterval(() => {
-    const lobby = document.getElementById('screen-lobby');
-    if (lobby && !lobby.classList.contains('hidden')) {
+    const lobby = document.getElementById("screen-lobby");
+    if (lobby && !lobby.classList.contains("hidden")) {
         refreshLobby();
     }
 }, 3000);
 
-document.getElementById('btnCreateRoom').onclick = async () => {
+document.getElementById("btnCreateRoom").onclick = async () => {
     try {
-        const grid = document.getElementById('gridSizeInput').value || DEFAULT_SIZE;
-        const maxP = document.getElementById('maxPlayersInput').value || 2;
+        if (!playerId) await ensurePlayer();
+
+        const grid = document.getElementById("gridSizeInput").value || DEFAULT_SIZE;
+        const maxP = document.getElementById("maxPlayersInput").value || 2;
 
         const res = await fetch(`${currentBaseUrl}/api/games`, {
             method: "POST",
@@ -188,46 +247,53 @@ document.getElementById('btnCreateRoom').onclick = async () => {
         });
 
         const data = await safeJson(res);
-        if (!res.ok) throw new Error(data.message);
+        if (!res.ok) throw new Error(data.message || "Could not create room.");
 
         currentGridSize = Number(grid) || DEFAULT_SIZE;
         persistSession();
+
         await joinGameById(data.game_id);
     } catch (err) {
+        console.error("Creation failed:", err);
         alert(`Creation failed: ${err.message}`);
     }
 };
 
 async function refreshLobby() {
     if (!playerId) {
-        const savedId = localStorage.getItem("currentPlayerId");
-        if (savedId) {
-            playerId = Number(savedId);
-        }
+        const savedId = localStorage.getItem(serverKey("currentPlayerId"));
+        if (savedId) playerId = Number(savedId);
     }
 
-    const listEl = document.getElementById('gameList');
+    const listEl = document.getElementById("gameList");
+    if (!listEl) return;
 
     try {
-        const res = await fetch(`${currentBaseUrl}/api/games`);
+        const res = await fetch(`${currentBaseUrl}/api/games?t=${Date.now()}`);
         const games = await safeJson(res);
+
+        if (!res.ok || !Array.isArray(games)) {
+            throw new Error("This server did not return a valid games list.");
+        }
 
         listEl.innerHTML = games.map(g => `
             <div class="game-item">
                 <span>Room #${g.game_id} (${g.status}) · ${g.grid_size}x${g.grid_size} · ${g.max_players} players</span>
-                ${g.status !== 'finished'
+                ${g.status !== "finished"
                     ? `<button class="success" onclick="joinGameById(${g.game_id})">Join</button>`
-                    : '<span class="muted">Closed</span>'}
+                    : `<span class="muted">Closed</span>`}
             </div>
-        `).join('') || '<p class="hint">No active signals found.</p>';
+        `).join("") || `<p class="hint" style="padding:10px;">No active signals found.</p>`;
     } catch (err) {
-        listEl.innerHTML = '<p class="hint">Error retrieving signals.</p>';
+        console.error("Lobby refresh failed:", err);
+        listEl.innerHTML = `<p class="hint" style="padding:10px;">Error retrieving signals from this server.</p>`;
     }
 }
 
-// --- SCREEN 4: PLACEMENT ---
 async function joinGameById(id) {
     try {
+        if (!playerId) await ensurePlayer();
+
         const res = await fetch(`${currentBaseUrl}/api/games/${id}/join`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -235,34 +301,67 @@ async function joinGameById(id) {
         });
 
         const data = await safeJson(res);
-        if (!res.ok) throw new Error(data.message || 'Join failed');
 
-        // --- THE FIX: WIPE OLD DATA ON JOIN ---
+        if (!res.ok) {
+            console.error("JOIN FAILED RESPONSE:", data);
+            throw new Error(data.message || data.error || "Join failed.");
+        }
+
         gameId = id;
-        lastMoveCount = 0; // Reset log counter for the new room
-        persistentShotMarks = {}; // Clear old hits/misses
-        localStorage.removeItem('persistentShotMarks'); // Wipe from storage
-        if (logEl) logEl.innerHTML = ""; // Clear the physical log panel
-        // ---------------------------------------------------
+        lastMoveCount = 0;
+        persistentShotMarks = {};
+        localStorage.removeItem(serverKey("persistentShotMarks"));
+        if (logEl) logEl.innerHTML = "";
 
         await loadGameMeta(gameId);
         startPlacementMode();
     } catch (err) {
+        console.error("Join Error:", err);
         alert(`Join Error: ${err.message}`);
     }
 }
 
+async function loadGameMeta(id) {
+    const res = await fetch(`${currentBaseUrl}/api/games/${id}?t=${Date.now()}`);
+    const data = await safeJson(res);
+
+    if (!res.ok) throw new Error(data.message || "Unable to load game.");
+
+    const idPlacement = document.getElementById("displayGameId");
+    const idGame = document.getElementById("displayGameIdGame");
+
+    if (idPlacement) idPlacement.textContent = `#${id}`;
+    if (idGame) idGame.textContent = `#${id}`;
+
+    currentGridSize = Number(data.grid_size) || DEFAULT_SIZE;
+
+    if (Array.isArray(data.players)) {
+        playerMap = {};
+        data.players.forEach(p => {
+            playerMap[p.player_id] =
+                p.username || (Number(p.player_id) === Number(playerId) ? "You" : `Player ${p.player_id}`);
+        });
+    }
+
+    gameStatus = data.status || gameStatus;
+    persistSession();
+
+    return data;
+}
+
+// --- PLACEMENT ---
 function startPlacementMode() {
     isPlacementMode = true;
     selectedShips = [];
     placedShips = [];
     currentPlacementIndex = 0;
-    currentPlacementDirection = 'horizontal';
+    currentPlacementDirection = "horizontal";
     lastMoveCount = 0;
-    navigateTo('screen-placement');
+
+    navigateTo("screen-placement");
     updatePlacementInstructions(`Place your Carrier (5 squares) on the ${getBoardSize()}x${getBoardSize()} grid`);
 
-    const confirmBtn = document.getElementById('btnConfirmPlacement');
+    const confirmBtn = document.getElementById("btnConfirmPlacement");
     if (confirmBtn) confirmBtn.disabled = true;
 
     renderPlacementBoard();
@@ -270,17 +369,20 @@ function startPlacementMode() {
 
 function getShipCells(startRow, startCol, length, direction) {
     const cells = [];
+
     for (let i = 0; i < length; i++) {
         cells.push({
             row: direction === "vertical" ? startRow + i : startRow,
             col: direction === "horizontal" ? startCol + i : startCol
         });
     }
+
     return cells;
 }
 
 function canPlaceShip(cells) {
     const size = getBoardSize();
+
     return cells.every(cell => (
         cell.row >= 0 &&
         cell.row < size &&
@@ -291,9 +393,9 @@ function canPlaceShip(cells) {
 }
 
 function syncPlacementControls() {
-    const dirBtn = document.getElementById('btnRotatePlacement');
-    const dirLabel = document.getElementById('placementDirectionLabel');
-    const directionText = currentPlacementDirection === 'horizontal' ? 'Horizontal' : 'Vertical';
+    const dirBtn = document.getElementById("btnRotatePlacement");
+    const dirLabel = document.getElementById("placementDirectionLabel");
+    const directionText = currentPlacementDirection === "horizontal" ? "Horizontal" : "Vertical";
 
     if (dirBtn) dirBtn.textContent = `Direction: ${directionText}`;
     if (dirLabel) dirLabel.textContent = `Current direction: ${directionText}`;
@@ -304,8 +406,10 @@ function renderPlacementBoard() {
     if (!board) return;
 
     const size = getBoardSize();
+
     board.innerHTML = "";
     board.style.gridTemplateColumns = `repeat(${size + 1}, 32px)`;
+
     syncPlacementControls();
 
     for (let r = -1; r < size; r++) {
@@ -356,23 +460,73 @@ function handlePlacementClick(row, col) {
 
     selectedShips = placedShips.flatMap(ship => ship.cells.map(cell => ({ ...cell })));
     currentPlacementIndex++;
+
     persistSession();
 
     if (currentPlacementIndex < SHIP_SEQUENCE.length) {
         updatePlacementInstructions(`Place your next ship (${SHIP_SEQUENCE[currentPlacementIndex]} squares)`);
     } else {
         updatePlacementInstructions("Fleet stationed. Ready for confirmation.");
-        const confirmBtn = document.getElementById('btnConfirmPlacement');
+        const confirmBtn = document.getElementById("btnConfirmPlacement");
         if (confirmBtn) confirmBtn.disabled = false;
     }
 
     renderPlacementBoard();
 }
 
-// --- SCREEN 5: THE BATTLE ---
+document.getElementById("btnConfirmPlacement").onclick = async () => {
+    try {
+        const res = await fetch(`${currentBaseUrl}/api/games/${gameId}/place`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ player_id: playerId, ships: selectedShips })
+        });
+
+        const data = await safeJson(res);
+        if (!res.ok) throw new Error(data.message || "Deployment rejected.");
+
+        persistSession();
+        navigateTo("screen-game");
+        startPolling();
+        await refreshGameState();
+    } catch (err) {
+        console.error("Placement failed:", err);
+        alert(err.message);
+    }
+};
+
+document.getElementById("btnResetPlacement").onclick = () => startPlacementMode();
+
+document.getElementById("btnRotatePlacement").onclick = () => {
+    currentPlacementDirection = currentPlacementDirection === "horizontal" ? "vertical" : "horizontal";
+    persistSession();
+    renderPlacementBoard();
+};
+
+document.getElementById("btnUndoPlacement").onclick = () => {
+    if (!placedShips.length) return;
+
+    placedShips.pop();
+    selectedShips = placedShips.flatMap(ship => ship.cells.map(cell => ({ ...cell })));
+    currentPlacementIndex = placedShips.length;
+
+    const confirmBtn = document.getElementById("btnConfirmPlacement");
+    if (confirmBtn) confirmBtn.disabled = currentPlacementIndex !== SHIP_SEQUENCE.length;
+
+    if (currentPlacementIndex < SHIP_SEQUENCE.length) {
+        updatePlacementInstructions(`Place your next ship (${SHIP_SEQUENCE[currentPlacementIndex]} squares)`);
+    } else {
+        updatePlacementInstructions("Fleet stationed. Ready for confirmation.");
+    }
+
+    persistSession();
+    renderPlacementBoard();
+};
+
+// --- BATTLE ---
 async function firePhasers(row, col) {
     const cell = document.getElementById(`enemy-cell-${row}-${col}`);
-    if (!cell || cell.classList.contains('hit') || cell.classList.contains('miss') || cell.disabled) return;
+    if (!cell || cell.classList.contains("hit") || cell.classList.contains("miss") || cell.disabled) return;
 
     try {
         const res = await fetch(`${currentBaseUrl}/api/games/${gameId}/fire`, {
@@ -403,38 +557,60 @@ async function firePhasers(row, col) {
     }
 }
 
+async function refreshGameState() {
+    if (!gameId || !playerId) return;
+
+    try {
+        const gameData = await loadGameMeta(gameId);
+
+        if (gameData.status === "finished") {
+            showFinalSummary(gameData);
+        } else {
+            updateTurnIndicator(gameData.current_turn_player_id);
+        }
+
+        await renderActiveBoards(gameData);
+    } catch (err) {
+        console.error("Refresh failed:", err);
+    }
+}
+
 async function renderActiveBoards(gameData) {
     const movesRes = await fetch(`${currentBaseUrl}/api/games/${gameId}/moves?t=${Date.now()}`);
     const movesData = await safeJson(movesRes);
-    const moves = movesData.moves || [];
+    const moves = Array.isArray(movesData.moves) ? movesData.moves : [];
 
-    // FIX: Rebuild log if it was cleared by a refresh
     if (logEl && logEl.innerHTML === "" && moves.length > 0) {
-        lastMoveCount = 0; // Reset counter to force re-logging of all historical moves
+        lastMoveCount = 0;
     }
 
     if (moves.length > lastMoveCount) {
         moves.slice(lastMoveCount).forEach(m => {
-            // Log EVERYONE'S shots (You and the Opponent)
-            setPersistentShotMark(Number(m.player_id) === Number(playerId) ? "enemy" : "player", m.row, m.col, m.result);
-            
+            setPersistentShotMark(
+                Number(m.player_id) === Number(playerId) ? "enemy" : "player",
+                m.row,
+                m.col,
+                m.result
+            );
+
             addToLog(
                 `Fired at ${String.fromCharCode(65 + Number(m.row))}-${Number(m.col) + 1} (${String(m.result).toUpperCase()})`,
                 m.result,
                 m.player_id
             );
         });
+
         lastMoveCount = moves.length;
     }
 
     const myMoves = moves.filter(m => Number(m.player_id) === Number(playerId));
-    const hits = myMoves.filter(m => m.result === 'hit').length;
-    const misses = myMoves.filter(m => m.result === 'miss').length;
+    const hits = myMoves.filter(m => m.result === "hit").length;
+    const misses = myMoves.filter(m => m.result === "miss").length;
     const accuracy = myMoves.length > 0 ? ((hits / myMoves.length) * 100).toFixed(1) : "0.0";
 
-    const hitsEl = document.getElementById('liveHits');
-    const missesEl = document.getElementById('liveMisses');
-    const accuracyEl = document.getElementById('liveAccuracy');
+    const hitsEl = document.getElementById("liveHits");
+    const missesEl = document.getElementById("liveMisses");
+    const accuracyEl = document.getElementById("liveAccuracy");
 
     if (hitsEl) hitsEl.textContent = hits;
     if (missesEl) missesEl.textContent = misses;
@@ -458,12 +634,10 @@ function renderGrid(containerId, moves, isPlayer, idPrefix) {
         const moverId = Number(m.player_id);
 
         if (isPlayer) {
-            // On YOUR board, show moves where the mover was NOT you
             if (moverId !== Number(playerId)) {
                 shotMap.set(key, m.result);
             }
         } else {
-            // On ENEMY board, show moves where the mover WAS you
             if (moverId === Number(playerId)) {
                 shotMap.set(key, m.result);
             }
@@ -487,7 +661,7 @@ function renderGrid(containerId, moves, isPlayer, idPrefix) {
             const wrapper = document.createElement("div");
 
             if (r === -1 && c === -1) {
-                wrapper.className = 'grid-corner';
+                wrapper.className = "grid-corner";
                 board.appendChild(wrapper);
                 continue;
             }
@@ -508,6 +682,7 @@ function renderGrid(containerId, moves, isPlayer, idPrefix) {
 
             const cell = document.createElement("button");
             const key = `${r},${c}`;
+
             cell.className = "cell";
             cell.id = `${idPrefix}-${r}-${c}`;
 
@@ -536,202 +711,63 @@ function renderGrid(containerId, moves, isPlayer, idPrefix) {
     }
 }
 
-// --- GLOBAL LOAD & NAVIGATION ---
-window.addEventListener("load", async () => {
-    const savedView = localStorage.getItem('currentView');
-    const savedServer = localStorage.getItem('currentServer');
-    const savedGameId = localStorage.getItem('currentGameId');
-    const savedShips = localStorage.getItem('persistentShips');
-    const savedPlacedShips = localStorage.getItem('persistentPlacedShips');
-    const savedPlayerId = localStorage.getItem('currentPlayerId');
-    const savedGridSize = localStorage.getItem('currentGridSize');
+function updateTurnIndicator(turnId) {
+    const ind = document.getElementById("turnIndicator");
+    if (!ind) return;
 
-    if (savedServer) {
-        currentBaseUrl = savedServer;
-        document.getElementById('activeServerUrl').textContent = `Connected: ${currentBaseUrl}`;
-        const serverSelect = document.getElementById('serverSelect');
-        if (serverSelect) serverSelect.value = currentBaseUrl;
-    }
+    const myTurn = Number(turnId) === Number(playerId);
 
-    if (savedPlayerId) playerId = Number(savedPlayerId);
-    if (savedGridSize) currentGridSize = Number(savedGridSize) || DEFAULT_SIZE;
-    if (savedShips) selectedShips = JSON.parse(savedShips);
-    if (savedPlacedShips) placedShips = JSON.parse(savedPlacedShips);
-    if (placedShips.length) currentPlacementIndex = placedShips.length;
-    loadPersistentShotMarks();
-
-    const savedDirection = localStorage.getItem('currentPlacementDirection');
-    if (savedDirection === 'horizontal' || savedDirection === 'vertical') {
-        currentPlacementDirection = savedDirection;
-    }
-
-    if (savedGameId) {
-        gameId = Number(savedGameId);
-        try {
-            const gameData = await loadGameMeta(gameId);
-
-            if (savedView === 'screen-placement') {
-                renderPlacementBoard();
-                const confirmBtn = document.getElementById('btnConfirmPlacement');
-                if (confirmBtn) confirmBtn.disabled = currentPlacementIndex !== SHIP_SEQUENCE.length;
-            }
-
-            if (savedView === 'screen-game' || savedView === 'screen-summary') {
-                startPolling();
-                await refreshGameState();
-            }
-
-            if (gameData.status === 'finished') {
-                navigateTo('screen-summary');
-            }
-        } catch (err) {
-            console.warn('Could not restore saved game:', err.message);
-            clearSessionState();
-        }
-    }
-
-    if (savedView && localStorage.getItem('currentServer')) navigateTo(savedView);
-    else navigateTo('screen-server');
-
-    const savedName = localStorage.getItem("persistentPlayerName");
-    if (savedName) {
-        const pInput = document.getElementById("playerName");
-        if (pInput) pInput.value = savedName;
-    }
-});
-
-// Navigation handlers
-document.getElementById('nav-disconnect').onclick = () => {
-    clearSessionState();
-    location.reload();
-};
-
-document.getElementById('nav-logout').onclick = () => {
-    navigateTo('screen-login');
-};
-
-document.getElementById('nav-lobby').onclick = async () => {
-    navigateTo('screen-lobby');
-    if (gameId) {
-        try {
-            await loadGameMeta(gameId);
-        } catch {}
-    }
-    refreshLobby();
-};
-
-async function ensurePlayer() {
-    const name = document.getElementById("playerName").value || "Captain_Gabbie";
-
-    const res = await fetch(`${currentBaseUrl}/api/players`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: name })
-    });
-
-    const data = await safeJson(res);
-    playerId = (res.status === 409) ? Number(localStorage.getItem("currentPlayerId")) : data.player_id;
-
-    localStorage.setItem("currentPlayerId", playerId);
-    localStorage.setItem("persistentPlayerName", name);
-    persistSession();
-}
-
-document.getElementById('btnConfirmPlacement').onclick = async () => {
-    try {
-        const res = await fetch(`${currentBaseUrl}/api/games/${gameId}/place`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ player_id: playerId, ships: selectedShips })
-        });
-
-        const data = await safeJson(res);
-        if (!res.ok) throw new Error(data.message || "Deployment rejected.");
-
-        persistSession();
-        navigateTo('screen-game');
-        startPolling();
-        await refreshGameState();
-    } catch (err) {
-        alert(err.message);
-    }
-};
-
-async function refreshGameState() {
-    if (!gameId || !playerId) return;
-
-    try {
-        const gameData = await loadGameMeta(gameId);
-
-        if (gameData.status === "finished") {
-            showFinalSummary(gameData);
-        } else {
-            updateTurnIndicator(gameData.current_turn_player_id);
-        }
-
-        await renderActiveBoards(gameData);
-    } catch (err) {
-        console.error("Refresh failed:", err);
-    }
+    ind.textContent = myTurn ? "YOUR TURN: FIRE WHEN READY" : "OPPONENT TURN: BRACING FOR IMPACT";
+    ind.style.color = myTurn ? "#2ecc71" : "#ff5c5c";
 }
 
 async function showFinalSummary(gameData) {
     stopPolling();
-    navigateTo('screen-summary');
+    navigateTo("screen-summary");
 
-    // 1. Set Win/Loss Text
     const isWin = Number(gameData.winner_id) === Number(playerId);
-    const resEl = document.getElementById('missionResult');
+    const resEl = document.getElementById("missionResult");
+
     if (resEl) {
         resEl.textContent = isWin ? "MISSION ACCOMPLISHED" : "MISSION FAILURE";
         resEl.style.color = isWin ? "#2ecc71" : "#ff5c5c";
     }
 
-    // 2. Fetch Lifetime Stats from API
     try {
         const statsRes = await fetch(`${currentBaseUrl}/api/players/${playerId}/stats`);
         const stats = await safeJson(statsRes);
-        const statsBox = document.getElementById('playerLifetimeStats');
+
+        const statsBox = document.getElementById("playerLifetimeStats");
         if (statsBox) {
+            const accuracyPercent = Number(stats.accuracy || 0) * 100;
+
             statsBox.innerHTML = `
                 <h3>Captain's Record</h3>
-                <p>Wins: ${stats.wins} | Losses: ${stats.losses}</p>
-                <p>Career Accuracy: ${(stats.accuracy * 100).toFixed(1)}%</p>
+                <p>Wins: ${stats.wins ?? 0} | Losses: ${stats.losses ?? 0}</p>
+                <p>Career Accuracy: ${accuracyPercent.toFixed(1)}%</p>
             `;
         }
-    } catch (err) { console.error("Stats fetch failed", err); }
+    } catch (err) {
+        console.error("Stats fetch failed", err);
+    }
 
-    // 3. Move the game boards, stats, and log to the summary view
-    const summaryBoards = document.getElementById('summaryBoards');
-    const battleArena = document.querySelector('.battle-arena');
-    if (summaryBoards && battleArena) {
-        summaryBoards.appendChild(battleArena); // This moves the boards and log automatically!
+    const summaryBoards = document.getElementById("summaryBoards");
+    const battleArena = document.querySelector(".battle-arena");
+
+    if (summaryBoards && battleArena && !summaryBoards.contains(battleArena)) {
+        summaryBoards.appendChild(battleArena);
     }
 }
 
-document.getElementById('nav-logout-summary').onclick = () => {
-    clearSessionState();
-    navigateTo('screen-login');
-};
-document.getElementById('btnDisconnectSummary').onclick = () => {
-    clearSessionState();
-    location.reload();
-};
-
-function updateTurnIndicator(turnId) {
-    const ind = document.getElementById('turnIndicator');
-    if (!ind) return;
-
-    const myTurn = Number(turnId) === Number(playerId);
-    ind.textContent = myTurn ? "YOUR TURN: FIRE WHEN READY" : "OPPONENT TURN: BRACING FOR IMPACT";
-    ind.style.color = myTurn ? "#2ecc71" : "#ff5c5c";
-}
-
+// --- LOGGING / POLLING ---
 function updatePlacementInstructions(msg) {
-    document.getElementById('placementInstructions').textContent = msg;
+    const el = document.getElementById("placementInstructions");
+    if (el) el.textContent = msg;
 }
 
 function addToLog(msg, type, actorId = null) {
+    if (!logEl) return;
+
     const entry = document.createElement("div");
     const name = actorId ? (playerMap[actorId] || "Unknown") : "System";
 
@@ -750,65 +786,132 @@ function stopPolling() {
     pollHandle = null;
 }
 
-async function safeJson(r) {
-    const t = await r.text();
-    try {
-        return JSON.parse(t);
-    } catch {
-        return { message: t };
-    }
-}
-
-document.getElementById('btnResetPlacement').onclick = () => startPlacementMode();
-
-document.getElementById('btnRotatePlacement').onclick = () => {
-    currentPlacementDirection = currentPlacementDirection === 'horizontal' ? 'vertical' : 'horizontal';
-    persistSession();
-    renderPlacementBoard();
+// --- NAVIGATION BUTTONS ---
+document.getElementById("nav-disconnect").onclick = () => {
+    clearSessionState();
+    localStorage.removeItem("currentServer");
+    location.reload();
 };
 
-document.getElementById('btnUndoPlacement').onclick = () => {
-    if (!placedShips.length) return;
-
-    placedShips.pop();
-    selectedShips = placedShips.flatMap(ship => ship.cells.map(cell => ({ ...cell })));
-    currentPlacementIndex = placedShips.length;
-
-    const confirmBtn = document.getElementById('btnConfirmPlacement');
-    if (confirmBtn) confirmBtn.disabled = currentPlacementIndex !== SHIP_SEQUENCE.length;
-
-    if (currentPlacementIndex < SHIP_SEQUENCE.length) {
-        updatePlacementInstructions(`Place your next ship (${SHIP_SEQUENCE[currentPlacementIndex]} squares)`);
-    } else {
-        updatePlacementInstructions('Fleet stationed. Ready for confirmation.');
-    }
-
-    persistSession();
-    renderPlacementBoard();
+document.getElementById("nav-logout").onclick = () => {
+    playerId = null;
+    localStorage.removeItem(serverKey("currentPlayerId"));
+    clearGameSessionOnly();
+    navigateTo("screen-login");
 };
 
-document.getElementById('btnReturnLobby').onclick = async () => {
-    // 1. Clear game-specific tactical data but KEEP the player's identity
-    gameId = null;
-    lastMoveCount = 0;
-    selectedShips = [];
-    placedShips = [];
-    persistentShotMarks = {}; // Clear the hits/misses from the previous session
-    
-    // 2. Remove game-specific items from storage so they don't reload on refresh
-    localStorage.removeItem('currentGameId');
-    localStorage.removeItem('persistentShips');
-    localStorage.removeItem('persistentPlacedShips');
-    localStorage.removeItem('persistentShotMarks');
-
-    // 3. Reset the UI log for the next mission
-    if (logEl) logEl.innerHTML = "";
-    
-    navigateTo('screen-lobby');
+document.getElementById("nav-lobby").onclick = async () => {
+    clearGameSessionOnly();
+    navigateTo("screen-lobby");
     refreshLobby();
 };
 
-document.getElementById('btnDisconnect').onclick = () => {
+document.getElementById("nav-logout-summary").onclick = () => {
+    playerId = null;
+    localStorage.removeItem(serverKey("currentPlayerId"));
+    clearGameSessionOnly();
+    navigateTo("screen-login");
+};
+
+document.getElementById("btnDisconnectSummary").onclick = () => {
     clearSessionState();
+    localStorage.removeItem("currentServer");
     location.reload();
 };
+
+document.getElementById("btnReturnLobby").onclick = async () => {
+    clearGameSessionOnly();
+    navigateTo("screen-lobby");
+    refreshLobby();
+};
+
+document.getElementById("btnDisconnect").onclick = () => {
+    clearSessionState();
+    localStorage.removeItem("currentServer");
+    location.reload();
+};
+
+// --- LOAD RESTORE ---
+window.addEventListener("load", async () => {
+    const savedServer = localStorage.getItem("currentServer");
+
+    if (savedServer) {
+        currentBaseUrl = normalizeBaseUrl(savedServer);
+
+        const activeServerUrl = document.getElementById("activeServerUrl");
+        if (activeServerUrl) activeServerUrl.textContent = `Connected: ${currentBaseUrl}`;
+
+        const serverSelect = document.getElementById("serverSelect");
+        if (serverSelect) serverSelect.value = currentBaseUrl;
+    }
+
+    const savedView = localStorage.getItem(serverKey("currentView"));
+    const savedGameId = localStorage.getItem(serverKey("currentGameId"));
+    const savedShips = localStorage.getItem(serverKey("persistentShips"));
+    const savedPlacedShips = localStorage.getItem(serverKey("persistentPlacedShips"));
+    const savedPlayerId = localStorage.getItem(serverKey("currentPlayerId"));
+    const savedGridSize = localStorage.getItem(serverKey("currentGridSize"));
+    const savedDirection = localStorage.getItem(serverKey("currentPlacementDirection"));
+
+    if (savedPlayerId) playerId = Number(savedPlayerId);
+    if (savedGridSize) currentGridSize = Number(savedGridSize) || DEFAULT_SIZE;
+
+    if (savedShips) {
+        try { selectedShips = JSON.parse(savedShips); } catch { selectedShips = []; }
+    }
+
+    if (savedPlacedShips) {
+        try { placedShips = JSON.parse(savedPlacedShips); } catch { placedShips = []; }
+    }
+
+    if (placedShips.length) currentPlacementIndex = placedShips.length;
+
+    if (savedDirection === "horizontal" || savedDirection === "vertical") {
+        currentPlacementDirection = savedDirection;
+    }
+
+    loadPersistentShotMarks();
+
+    const savedName = localStorage.getItem("persistentPlayerName");
+    if (savedName) {
+        const pInput = document.getElementById("playerName");
+        if (pInput) pInput.value = savedName;
+    }
+
+    if (savedGameId && playerId) {
+        gameId = Number(savedGameId);
+
+        try {
+            const gameData = await loadGameMeta(gameId);
+
+            if (savedView === "screen-placement") {
+                navigateTo("screen-placement");
+                renderPlacementBoard();
+
+                const confirmBtn = document.getElementById("btnConfirmPlacement");
+                if (confirmBtn) confirmBtn.disabled = currentPlacementIndex !== SHIP_SEQUENCE.length;
+            } else if (savedView === "screen-game" || savedView === "screen-summary") {
+                navigateTo(savedView);
+                startPolling();
+                await refreshGameState();
+            }
+
+            if (gameData.status === "finished") {
+                navigateTo("screen-summary");
+            }
+
+            return;
+        } catch (err) {
+            console.warn("Could not restore saved game:", err.message);
+            clearGameSessionOnly();
+        }
+    }
+
+    if (savedServer) {
+        navigateTo("screen-login");
+        setStatus("Connected. Please log in for this server.");
+    } else {
+        navigateTo("screen-server");
+        setStatus("Uplink required.");
+    }
+});
